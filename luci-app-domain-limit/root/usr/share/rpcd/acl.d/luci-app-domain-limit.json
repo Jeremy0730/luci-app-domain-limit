@@ -4,7 +4,8 @@
 		"read": {
 			"uci": [ "domain-limit" ],
 			"file": {
-				"/usr/sbin/domain-limit-status": [ "exec" ]
+				"/usr/sbin/domain-limit-status": [ "exec" ],
+				"/usr/share/domain-limit/apps.json": [ "read" ]
 			}
 		},
 		"write": {

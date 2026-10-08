@@ -1,0 +1,97 @@
+{
+	"douyin": {
+		"name": "Douyin",
+		"name_zh": "抖音",
+		"domains": [
+			"douyin.com", "iesdouyin.com", "douyinvod.com", "douyincdn.com", "douyinliving.com",
+			"douyinpic.com", "douyinstatic.com", "zjcdn.com", "amemv.com", "snssdk.com",
+			"zijieapi.com", "byteimg.com", "bytegecko.com", "bytetos.com", "pstatp.com",
+			"ihuoshanlive.com", "ecombdapi.com"
+		]
+	},
+	"kuaishou": {
+		"name": "Kuaishou",
+		"name_zh": "快手",
+		"domains": [
+			"kuaishou.com", "gifshow.com", "ksapisrv.com", "kwaicdn.com", "kwimgs.com",
+			"yximgs.com", "kspkg.com"
+		]
+	},
+	"weibo": {
+		"name": "Weibo",
+		"name_zh": "微博",
+		"domains": [ "weibo.com", "weibo.cn", "weibocdn.com", "sinaimg.cn" ]
+	},
+	"xiaohongshu": {
+		"name": "Xiaohongshu (RED)",
+		"name_zh": "小红书",
+		"domains": [ "xiaohongshu.com", "xhscdn.com", "xhslink.com" ]
+	},
+	"bilibili": {
+		"name": "Bilibili",
+		"name_zh": "哔哩哔哩",
+		"domains": [
+			"bilibili.com", "bilivideo.com", "bilivideo.cn", "hdslb.com", "biliapi.com",
+			"biliapi.net", "acgvideo.com", "b23.tv"
+		]
+	},
+	"iqiyi": {
+		"name": "iQIYI",
+		"name_zh": "爱奇艺",
+		"domains": [ "iqiyi.com", "iqiyipic.com", "qiyi.com", "qiyipic.com", "71.am" ]
+	},
+	"youku": {
+		"name": "Youku",
+		"name_zh": "优酷",
+		"domains": [ "youku.com", "ykimg.com" ]
+	},
+	"tiktok": {
+		"name": "TikTok",
+		"domains": [
+			"tiktok.com", "tiktokv.com", "tiktokv.us", "tiktokcdn.com", "tiktokcdn-us.com",
+			"byteoversea.com", "ibytedtos.com", "ttwstatic.com"
+		]
+	},
+	"youtube": {
+		"name": "YouTube",
+		"domains": [
+			"youtube.com", "youtu.be", "youtube-nocookie.com", "googlevideo.com", "ytimg.com",
+			"youtubei.googleapis.com", "yt3.ggpht.com"
+		]
+	},
+	"netflix": {
+		"name": "Netflix",
+		"domains": [
+			"netflix.com", "netflix.net", "nflxvideo.net", "nflximg.net", "nflximg.com",
+			"nflxext.com", "nflxso.net"
+		]
+	},
+	"instagram": {
+		"name": "Instagram",
+		"domains": [ "instagram.com", "cdninstagram.com" ]
+	},
+	"twitch": {
+		"name": "Twitch",
+		"domains": [ "twitch.tv", "ttvnw.net", "jtvnw.net" ]
+	},
+	"steam": {
+		"name": "Steam",
+		"domains": [
+			"steampowered.com", "steamcommunity.com", "steamcontent.com", "steamstatic.com",
+			"steamserver.net"
+		]
+	},
+	"windows_update": {
+		"name": "Windows Update",
+		"name_zh": "Windows 更新",
+		"domains": [ "windowsupdate.com", "update.microsoft.com", "delivery.mp.microsoft.com" ]
+	},
+	"apple_update": {
+		"name": "Apple software updates",
+		"name_zh": "苹果系统更新",
+		"domains": [
+			"updates.cdn-apple.com", "swcdn.apple.com", "swdist.apple.com", "mesu.apple.com",
+			"appldnld.apple.com"
+		]
+	}
+}

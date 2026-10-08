@@ -6,6 +6,39 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
+msgid "Mon"
+msgstr "周一"
+
+msgid "Tue"
+msgstr "周二"
+
+msgid "Wed"
+msgstr "周三"
+
+msgid "Thu"
+msgstr "周四"
+
+msgid "Fri"
+msgstr "周五"
+
+msgid "Sat"
+msgstr "周六"
+
+msgid "Sun"
+msgstr "周日"
+
+msgid "Blocking"
+msgstr "禁止中"
+
+msgid "Limiting"
+msgstr "限速中"
+
+msgid "Allowance left"
+msgstr "额度未用完"
+
+msgid "Outside time window"
+msgstr "不在生效时段"
+
 msgid "No status yet. Install and start the domain-limit service, then reopen this page."
 msgstr "还没有读到运行状态。安装并启动 domain-limit 服务后再打开本页。"
 
@@ -21,17 +54,20 @@ msgstr "流量分载开着，限速会被绕过。请到「网络 → 防火墙�
 msgid "The limit is not active yet. Turn on the main switch, add at least one rule, then save and apply."
 msgstr "限速还没生效。打开总开关，添加至少一条规则，然后保存并应用。"
 
-msgid "Yes"
-msgstr "是"
+msgid "%d / %d min"
+msgstr "%d / %d 分钟"
 
-msgid "No"
-msgstr "否"
+msgid "%d min"
+msgstr "%d 分钟"
 
 msgid "Rule"
 msgstr "规则"
 
-msgid "Enabled"
-msgstr "启用"
+msgid "State"
+msgstr "状态"
+
+msgid "Used today"
+msgstr "今日已用"
 
 msgid "IPv4 addresses"
 msgstr "已收录 IPv4"
@@ -48,6 +84,9 @@ msgstr "下行丢包"
 msgid "If the address count is 0, the device is probably still using its own DNS cache. Reconnect it, or wait for the cache to expire, then visit the site again."
 msgstr "已收录地址为 0 时，这台设备多半还在用自己的 DNS 缓存。断开重连，或等缓存过期后再访问目标网站。"
 
+msgid "Use 24-hour HH:MM, e.g. 22:30"
+msgstr "请用 24 小时制 HH:MM，例如 22:30"
+
 msgid "Loading…"
 msgstr "正在读取…"
 
@@ -57,8 +96,8 @@ msgstr "当前状态"
 msgid "Domain Rate Limit"
 msgstr "域名限速"
 
-msgid "Limit the speed of one device when it accesses the listed domains; other sites are not affected. Rates are in Mbps (megabits per second). Entering example.com also covers its subdomains. Devices must use the router as DNS server; Private DNS on phones or encrypted DNS in browsers prevents domain matching. Prefer a MAC address so the rule survives IP changes. With only an IPv4 address, IPv6 traffic is not limited."
-msgstr "限制某一台设备访问指定域名时的速度，其它网站不限。速率单位是 Mbps（兆比特/秒）。填写 example.com 时，它的子域名会一起计算。设备请使用路由器的 DNS；手机私人 DNS、浏览器加密 DNS 会对不上域名。优先填 MAC，这样 IP 变化后仍然有效。只填 IPv4 时，IPv6 不受这条规则限制。"
+msgid "Limit or block selected apps and domains for one device, optionally only at certain times or after a daily allowance. Rates are in Mbps (megabits per second). Entering example.com also covers its subdomains. Devices must use the router as DNS server; Private DNS on phones or encrypted DNS in browsers prevents domain matching. Prefer a MAC address so the rule survives IP changes. With only an IPv4 address, IPv6 traffic is not limited."
+msgstr "对某一台设备访问指定 App 和域名进行限速或禁止，可以只在某些时段生效，或在每日额度用完后生效，其它网站不受影响。速率单位是 Mbps（兆比特/秒）。填写 example.com 时，它的子域名会一起计算。设备请使用路由器的 DNS；手机私人 DNS、浏览器加密 DNS 会对不上域名。优先填 MAC，这样 IP 变化后仍然有效。只填 IPv4 时，IPv6 不受这条规则限制。"
 
 msgid "Main switch"
 msgstr "总开关"
@@ -78,6 +117,12 @@ msgstr "设备名只能包含字母、数字、点、下划线和减号"
 msgid "Rules"
 msgstr "规则"
 
+msgid "Time control"
+msgstr "时间控制"
+
+msgid "Enabled"
+msgstr "启用"
+
 msgid "Name"
 msgstr "名称"
 
@@ -87,14 +132,26 @@ msgstr "例如：客厅电视"
 msgid "Device"
 msgstr "设备"
 
+msgid "Apps / domains"
+msgstr "App / 域名"
+
+msgid "Domains: %d"
+msgstr "域名 %d 个"
+
 msgid "Select the MAC of an online device, or enter a MAC / IPv4 address."
 msgstr "选择在线设备的 MAC，或手填 MAC / IPv4。"
 
 msgid "Enter a MAC (aa:bb:cc:dd:ee:ff) or an IPv4 address"
 msgstr "填写 MAC（aa:bb:cc:dd:ee:ff）或 IPv4 地址"
 
-msgid "Domains"
-msgstr "域名"
+msgid "Apps"
+msgstr "App"
+
+msgid "The domains of the selected apps are added automatically. App domain lists are best effort and are updated with the package."
+msgstr "所选 App 的域名会自动加入。App 域名列表尽量收全但不保证完整，会随软件包更新。"
+
+msgid "Extra domains"
+msgstr "额外域名"
 
 msgid "Type the domain and click Save; there is no need to click the plus button first. Do not include the protocol or path. Enter internationalized domains in punycode (starting with xn--)."
 msgstr "直接填写后点保存即可，不必先点加号。不要写协议和路径。中文域名请填 punycode（xn-- 开头）。"
@@ -102,8 +159,53 @@ msgstr "直接填写后点保存即可，不必先点加号。不要写协议和
 msgid "Invalid domain, e.g. example.com"
 msgstr "域名格式不正确，例如 example.com"
 
+msgid "Action"
+msgstr "动作"
+
+msgid "Limit speed"
+msgstr "限速"
+
+msgid "Block"
+msgstr "禁止访问"
+
 msgid "Download (Mbps)"
 msgstr "下行 Mbps"
 
 msgid "Upload (Mbps)"
 msgstr "上行 Mbps"
+
+msgid "%s / %s Mbps"
+msgstr "%s / %s Mbps"
+
+msgid "When"
+msgstr "生效时间"
+
+msgid "Always"
+msgstr "始终"
+
+msgid "Only within a time window"
+msgstr "仅在指定时段"
+
+msgid "Days"
+msgstr "星期"
+
+msgid "From"
+msgstr "开始"
+
+msgid "To"
+msgstr "结束"
+
+msgid "A window that ends before it starts runs past midnight, e.g. 22:00 to 07:00. The same start and end means the whole day."
+msgstr "结束早于开始表示跨过午夜，例如 22:00 到 07:00。开始和结束相同表示全天。"
+
+msgid "Daily allowance (minutes)"
+msgstr "每日额度（分钟）"
+
+msgid "Minutes per day the apps can be used freely before the action applies; the count resets at midnight. Only minutes with real traffic count. 0 or empty applies the action right away."
+msgstr "每天可以不受限制使用的分钟数，用完后才执行上面的动作，午夜清零。只统计真正有流量的分钟。填 0 或留空表示立即执行。"
+
+msgid "Every day"
+msgstr "每天"
+
+msgid "after %d min/day"
+msgstr "每天用满 %d 分钟后"

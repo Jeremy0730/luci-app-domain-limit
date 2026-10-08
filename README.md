@@ -2,7 +2,12 @@
 
 [![English](https://img.shields.io/badge/English-current-blue)](README.md) [![简体中文](https://img.shields.io/badge/简体中文-点击切换-lightgrey)](README.zh-CN.md)
 
-A LuCI app that limits the bandwidth of selected devices (by MAC or IPv4) only when they access selected domains. Other sites are not affected.
+A LuCI app that limits or blocks selected apps and domains for selected devices (by MAC or IPv4). Other sites are not affected.
+
+- **App presets**: pick Douyin, Kuaishou, Weibo, Xiaohongshu, Bilibili, iQIYI, Youku, TikTok, YouTube, Netflix, Instagram, Twitch, Steam, Windows Update or Apple software updates instead of typing domains; add extra domains as needed
+- **Limit or block**: cap download/upload in Mbps, or drop the traffic entirely
+- **Time windows**: apply a rule only on chosen weekdays between two times (windows may cross midnight, e.g. 22:00–07:00)
+- **Daily allowance**: let a device use the apps freely for N minutes per day, then apply the limit or block; the count resets at midnight
 
 - Works on: OpenWrt / ImmortalWrt 23.05 and later (fw4); 25.12 recommended
 - Depends on: `luci-base`, `firewall4`, `dnsmasq-full`
@@ -48,10 +53,15 @@ opkg install ./luci-app-domain-limit_*_all.ipk            # 24.10 and earlier
 Menu: Services → Domain Rate Limit.
 
 1. Turn on the main switch.
-2. Add a rule: pick a device (MAC preferred), enter domains (`example.com` also matches all of its subdomains), and set download/upload rates in Mbps.
-3. Save & Apply. The status section shows how many IP addresses each rule has collected and how many packets were dropped.
+2. Add a rule. On the **Rule** tab pick a device (MAC preferred), select apps and/or enter extra domains (`example.com` also matches all of its subdomains), then choose **Limit speed** with download/upload rates in Mbps, or **Block**.
+3. Optionally, on the **Time control** tab set the days and time window, and a daily allowance in minutes.
+4. Save & Apply. The status section shows each rule's state (limiting, blocking, allowance left, outside time window), minutes used today, collected IP addresses and dropped packets.
 
 Notes:
+
+- App domain lists are best effort. Apps change their domains and some use their own DNS (HTTPDNS) or hard-coded IPs, so a few requests may slip through. Add missing domains under Extra domains.
+- Only minutes with real traffic (about 20 kbit/s or more) count towards the daily allowance. Usage is kept in RAM and starts from zero after a reboot.
+- Time windows use the router's time zone (System → System).
 
 - Limited devices must use the router as their DNS server. Private DNS on phones or secure DNS (DoH) in browsers bypasses domain matching. You can redirect LAN port 53 to the router in the firewall.
 - Software/hardware flow offloading, Turbo ACC, NSS and similar acceleration must be off, otherwise traffic bypasses the limit.
@@ -61,7 +71,8 @@ Notes:
 
 - dnsmasq `nftset=` adds the addresses that the target domains resolve to into nftables sets; the daemon also resolves the domains itself every 90 seconds.
 - In the fw4 forward chain, connections from the target device to addresses in the set get a conntrack mark (including connections opened before the rule took effect).
-- Marked traffic is limited per direction with `limit rate over … drop`.
+- Marked traffic is limited per direction with `limit rate over … drop`, or dropped for block rules. A named counter per rule measures usage.
+- Every 30 seconds the daemon checks the time window and allowance of each rule and updates the `dl_on` set of active marks atomically, so rules turn on and off without reloading the firewall.
 
 ## Building
 

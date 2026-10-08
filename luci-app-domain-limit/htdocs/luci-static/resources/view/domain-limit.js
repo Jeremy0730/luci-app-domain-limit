@@ -4,12 +4,37 @@
 'require fs';
 'require poll';
 'require rpc';
+'require uci';
+
+var APPS_FILE = '/usr/share/domain-limit/apps.json';
+
+var WEEKDAYS = [
+	[ 'mon', _('Mon') ], [ 'tue', _('Tue') ], [ 'wed', _('Wed') ], [ 'thu', _('Thu') ],
+	[ 'fri', _('Fri') ], [ 'sat', _('Sat') ], [ 'sun', _('Sun') ]
+];
 
 var callHostHints = rpc.declare({
 	object: 'luci-rpc',
 	method: 'getHostHints',
 	expect: { '': {} }
 });
+
+function readApps() {
+	return L.resolveDefault(fs.read(APPS_FILE), '{}').then(function(text) {
+		try {
+			return JSON.parse(text) || {};
+		} catch (e) {
+			return {};
+		}
+	});
+}
+
+function appLabel(app, id) {
+	var zh = /^zh/.test(L.env.lang || '');
+	if (!app)
+		return id;
+	return (zh && app.name_zh) ? app.name_zh : (app.name || id);
+}
 
 function readStatus() {
 	return fs.exec('/usr/sbin/domain-limit-status', []).then(function(res) {
@@ -24,6 +49,16 @@ function readStatus() {
 	}, function() {
 		return null;
 	});
+}
+
+function ruleState(rule) {
+	if (!rule.enabled)
+		return '-';
+	if (rule.enforced)
+		return rule.action == 'block' ? _('Blocking') : _('Limiting');
+	if (rule.window)
+		return _('Allowance left');
+	return _('Outside time window');
 }
 
 function renderStatus(st) {
@@ -56,9 +91,13 @@ function renderStatus(st) {
 	var rules = st.rules || [];
 	if (rules.length) {
 		var rows = rules.map(function(rule) {
+			var used = rule.quota_min
+				? _('%d / %d min').format(rule.used_min || 0, rule.quota_min)
+				: _('%d min').format(rule.used_min || 0);
 			return E('tr', { 'class': 'tr' }, [
 				E('td', { 'class': 'td' }, rule.name || rule.id),
-				E('td', { 'class': 'td' }, rule.enabled ? _('Yes') : _('No')),
+				E('td', { 'class': 'td' }, ruleState(rule)),
+				E('td', { 'class': 'td' }, used),
 				E('td', { 'class': 'td' }, String(rule.v4 || 0)),
 				E('td', { 'class': 'td' }, String(rule.v6 || 0)),
 				E('td', { 'class': 'td' }, String(rule.up_drop || 0)),
@@ -68,7 +107,8 @@ function renderStatus(st) {
 		nodes.push(E('table', { 'class': 'table' }, [
 			E('tr', { 'class': 'tr table-titles' }, [
 				E('th', { 'class': 'th' }, _('Rule')),
-				E('th', { 'class': 'th' }, _('Enabled')),
+				E('th', { 'class': 'th' }, _('State')),
+				E('th', { 'class': 'th' }, _('Used today')),
 				E('th', { 'class': 'th' }, _('IPv4 addresses')),
 				E('th', { 'class': 'th' }, _('IPv6 addresses')),
 				E('th', { 'class': 'th' }, _('Upload drops')),
@@ -81,12 +121,22 @@ function renderStatus(st) {
 	return E('div', {}, nodes);
 }
 
+function validTime(section, value) {
+	if (!value || /^([01]?\d|2[0-3]):[0-5]\d$/.test(value))
+		return true;
+	return _('Use 24-hour HH:MM, e.g. 22:30');
+}
+
 return view.extend({
 	load: function() {
-		return callHostHints().catch(function() { return {}; });
+		return Promise.all([
+			callHostHints().catch(function() { return {}; }),
+			readApps()
+		]);
 	},
 
-	render: function(hosts) {
+	render: function(data) {
+		var hosts = data[0], apps = data[1];
 		var body = E('div', {}, _('Loading…'));
 		var status = E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Current status')),
@@ -104,7 +154,7 @@ return view.extend({
 		var m, s, o;
 
 		m = new form.Map('domain-limit', _('Domain Rate Limit'),
-			_('Limit the speed of one device when it accesses the listed domains; other sites are not affected. Rates are in Mbps (megabits per second). Entering example.com also covers its subdomains. Devices must use the router as DNS server; Private DNS on phones or encrypted DNS in browsers prevents domain matching. Prefer a MAC address so the rule survives IP changes. With only an IPv4 address, IPv6 traffic is not limited.'));
+			_('Limit or block selected apps and domains for one device, optionally only at certain times or after a daily allowance. Rates are in Mbps (megabits per second). Entering example.com also covers its subdomains. Devices must use the router as DNS server; Private DNS on phones or encrypted DNS in browsers prevents domain matching. Prefer a MAC address so the rule survives IP changes. With only an IPv4 address, IPv6 traffic is not limited.'));
 
 		s = m.section(form.NamedSection, 'global', 'global', _('Main switch'));
 
@@ -128,16 +178,39 @@ return view.extend({
 		s.anonymous = true;
 		s.addremove = true;
 		s.sortable = true;
+		s.tab('general', _('Rule'));
+		s.tab('time', _('Time control'));
 
-		o = s.option(form.Flag, 'enabled', _('Enabled'));
+		o = s.taboption('general', form.Flag, 'enabled', _('Enabled'));
 		o.default = '1';
 		o.editable = true;
 		o.rmempty = false;
 
-		o = s.option(form.Value, 'name', _('Name'));
+		o = s.taboption('general', form.Value, 'name', _('Name'));
 		o.placeholder = _('e.g. Living room TV');
 
-		o = s.option(form.Value, 'device', _('Device'));
+		o = s.option(form.DummyValue, '_device', _('Device'));
+		o.modalonly = false;
+		o.cfgvalue = function(section_id) {
+			var dev = String(uci.get('domain-limit', section_id, 'device') || '').toLowerCase();
+			var hint = hosts[dev] || hosts[dev.toUpperCase()] || {};
+			return hint.name ? hint.name + ' (' + dev + ')' : (dev || '-');
+		};
+
+		o = s.option(form.DummyValue, '_targets', _('Apps / domains'));
+		o.modalonly = false;
+		o.cfgvalue = function(section_id) {
+			var names = L.toArray(uci.get('domain-limit', section_id, 'app')).map(function(id) {
+				return appLabel(apps[id], id);
+			});
+			var extra = L.toArray(uci.get('domain-limit', section_id, 'domain')).length;
+			if (extra)
+				names.push(_('Domains: %d').format(extra));
+			return names.length ? names.join(', ') : '-';
+		};
+
+		o = s.taboption('general', form.Value, 'device', _('Device'));
+		o.modalonly = true;
 		o.rmempty = false;
 		o.description = _('Select the MAC of an online device, or enter a MAC / IPv4 address.');
 		Object.keys(hosts || {}).sort().forEach(function(key) {
@@ -158,8 +231,15 @@ return view.extend({
 			return _('Enter a MAC (aa:bb:cc:dd:ee:ff) or an IPv4 address');
 		};
 
-		o = s.option(form.DynamicList, 'domain', _('Domains'));
-		o.rmempty = false;
+		o = s.taboption('general', form.MultiValue, 'app', _('Apps'));
+		o.modalonly = true;
+		o.description = _('The domains of the selected apps are added automatically. App domain lists are best effort and are updated with the package.');
+		Object.keys(apps).forEach(function(id) {
+			o.value(id, appLabel(apps[id], id));
+		});
+
+		o = s.taboption('general', form.DynamicList, 'domain', _('Extra domains'));
+		o.modalonly = true;
 		o.placeholder = 'example.com';
 		o.description = _('Type the domain and click Save; there is no need to click the plus button first. Do not include the protocol or path. Enter internationalized domains in punycode (starting with xn--).');
 		o.validate = function(section, value) {
@@ -173,15 +253,86 @@ return view.extend({
 			return true;
 		};
 
-		o = s.option(form.Value, 'dl_mbps', _('Download (Mbps)'));
+		o = s.taboption('general', form.ListValue, 'action', _('Action'));
+		o.modalonly = true;
+		o.value('limit', _('Limit speed'));
+		o.value('block', _('Block'));
+		o.default = 'limit';
+
+		o = s.taboption('general', form.Value, 'dl_mbps', _('Download (Mbps)'));
+		o.modalonly = true;
 		o.datatype = 'range(1,10000)';
 		o.default = '32';
 		o.rmempty = false;
+		o.depends('action', 'limit');
 
-		o = s.option(form.Value, 'ul_mbps', _('Upload (Mbps)'));
+		o = s.taboption('general', form.Value, 'ul_mbps', _('Upload (Mbps)'));
+		o.modalonly = true;
 		o.datatype = 'range(1,10000)';
 		o.default = '8';
 		o.rmempty = false;
+		o.depends('action', 'limit');
+
+		o = s.option(form.DummyValue, '_action', _('Action'));
+		o.modalonly = false;
+		o.cfgvalue = function(section_id) {
+			if (uci.get('domain-limit', section_id, 'action') == 'block')
+				return _('Block');
+			return _('%s / %s Mbps').format(
+				uci.get('domain-limit', section_id, 'dl_mbps') || '-',
+				uci.get('domain-limit', section_id, 'ul_mbps') || '-');
+		};
+
+		o = s.taboption('time', form.ListValue, 'schedule', _('When'));
+		o.modalonly = true;
+		o.value('always', _('Always'));
+		o.value('window', _('Only within a time window'));
+		o.default = 'always';
+
+		o = s.taboption('time', form.MultiValue, 'weekdays', _('Days'));
+		o.modalonly = true;
+		WEEKDAYS.forEach(function(d) { o.value(d[0], d[1]); });
+		o.default = 'mon tue wed thu fri sat sun';
+		o.depends('schedule', 'window');
+
+		o = s.taboption('time', form.Value, 'start_time', _('From'));
+		o.modalonly = true;
+		o.placeholder = '22:00';
+		o.rmempty = false;
+		o.validate = validTime;
+		o.depends('schedule', 'window');
+
+		o = s.taboption('time', form.Value, 'stop_time', _('To'));
+		o.modalonly = true;
+		o.placeholder = '07:00';
+		o.rmempty = false;
+		o.validate = validTime;
+		o.description = _('A window that ends before it starts runs past midnight, e.g. 22:00 to 07:00. The same start and end means the whole day.');
+		o.depends('schedule', 'window');
+
+		o = s.taboption('time', form.Value, 'quota_min', _('Daily allowance (minutes)'));
+		o.modalonly = true;
+		o.datatype = 'range(0,1440)';
+		o.placeholder = '0';
+		o.description = _('Minutes per day the apps can be used freely before the action applies; the count resets at midnight. Only minutes with real traffic count. 0 or empty applies the action right away.');
+
+		o = s.option(form.DummyValue, '_when', _('When'));
+		o.modalonly = false;
+		o.cfgvalue = function(section_id) {
+			var get = function(opt) { return uci.get('domain-limit', section_id, opt); };
+			var text = _('Always');
+			if (get('schedule') == 'window') {
+				var days = L.toArray(get('weekdays'));
+				var names = WEEKDAYS.filter(function(d) { return days.length == 0 || days.indexOf(d[0]) > -1; })
+					.map(function(d) { return d[1]; });
+				text = (names.length == 7 ? _('Every day') : names.join(' ')) +
+					' ' + (get('start_time') || '?') + '–' + (get('stop_time') || '?');
+			}
+			var quota = +get('quota_min') || 0;
+			if (quota > 0)
+				text += ', ' + _('after %d min/day').format(quota);
+			return text;
+		};
 
 		return Promise.all([status, m.render()]);
 	}

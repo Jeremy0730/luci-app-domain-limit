@@ -16,7 +16,7 @@ start_service() {
 
 reload_service() {
 	if ubus call service list '{"name":"domain-limit"}' 2>/dev/null | grep -q '"running": true'; then
-		procd_send_signal domain-limit
+		procd_send_signal domain-limit '*' USR1
 	else
 		start
 	fi

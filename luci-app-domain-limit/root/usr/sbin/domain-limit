@@ -6,7 +6,13 @@
 
 NFT_TABLE=/usr/share/nftables.d/table-pre/domain-limit.nft
 NFT_JUMP=/usr/share/nftables.d/chain-pre/forward/domain-limit.nft
+APPS=/usr/share/domain-limit/apps.json
+RUN=/var/run/domain-limit
 LOCK=/var/lock/domain-limit.lock
+TICK=30
+REFRESH_EVERY=90
+# Traffic below this average rate does not count towards the daily allowance (background chatter).
+ACTIVE_BPS=2500
 
 set -f
 
@@ -58,6 +64,32 @@ valid_domain() {
 	printf '%s' "$d" | grep -qiE '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$'
 }
 
+# "HH:MM" -> minutes since midnight
+to_min() {
+	local h m
+	case $1 in
+		[0-9]:[0-5][0-9]|[01][0-9]:[0-5][0-9]|2[0-3]:[0-5][0-9]) ;;
+		*) return 1 ;;
+	esac
+	h=$(strip0 "${1%%:*}")
+	m=$(strip0 "${1#*:}")
+	printf '%s' $((h * 60 + m))
+}
+
+day_name() {
+	case $1 in
+		1) echo mon ;; 2) echo tue ;; 3) echo wed ;; 4) echo thu ;;
+		5) echo fri ;; 6) echo sat ;; *) echo sun ;;
+	esac
+}
+
+has_day() {
+	case " $1 " in
+		*" $2 "*) return 0 ;;
+	esac
+	return 1
+}
+
 add_dom() {
 	local d prefix
 	d=$(printf '%s' "$1" | tr 'A-Z' 'a-z' | tr -d ' \t\r')
@@ -71,11 +103,28 @@ add_dom() {
 	while [ "${d#.}" != "$d" ]; do
 		d=${d#.}
 	done
-	if valid_domain "$d"; then
-		DL_DOMAINS="${DL_DOMAINS}/$d"
-	else
+	if ! valid_domain "$d"; then
 		log "ignore domain: $1"
+		return 0
 	fi
+	case "$DL_DOMAINS/" in
+		*/"$d"/*) return 0 ;;
+	esac
+	DL_DOMAINS="${DL_DOMAINS}/$d"
+}
+
+add_app() {
+	local id d found=0
+	id=$(sanitize "$1")
+	if [ -z "$id" ] || [ ! -f "$APPS" ]; then
+		log "ignore app: $1"
+		return 0
+	fi
+	for d in $(jsonfilter -i "$APPS" -e "@.$id.domains[*]" 2>/dev/null); do
+		add_dom "$d"
+		found=1
+	done
+	[ "$found" -eq 1 ] || log "unknown app: $1"
 }
 
 lan_device() {
@@ -101,8 +150,7 @@ prepare_rule() {
 	[ "$enabled" -eq 1 ] || return 1
 
 	config_get device "$cfg" device
-	config_get dl "$cfg" dl_mbps
-	config_get ul "$cfg" ul_mbps
+	config_get DL_ACTION "$cfg" action limit
 	device=$(printf '%s' "$device" | tr 'A-F' 'a-f' | tr -d ' \t\r')
 
 	DL_HAVE_MAC=0
@@ -120,36 +168,47 @@ prepare_rule() {
 		return 1
 	fi
 
-	case $dl in
-		''|*[!0-9]*) log "skip $cfg: bad download rate"; return 1 ;;
+	case $DL_ACTION in
+		limit)
+			config_get dl "$cfg" dl_mbps
+			config_get ul "$cfg" ul_mbps
+			case $dl in
+				''|*[!0-9]*) log "skip $cfg: bad download rate"; return 1 ;;
+			esac
+			case $ul in
+				''|*[!0-9]*) log "skip $cfg: bad upload rate"; return 1 ;;
+			esac
+			if [ "$dl" -lt 1 ] || [ "$dl" -gt 10000 ]; then
+				log "skip $cfg: download rate out of range"
+				return 1
+			fi
+			if [ "$ul" -lt 1 ] || [ "$ul" -gt 10000 ]; then
+				log "skip $cfg: upload rate out of range"
+				return 1
+			fi
+			DL_DL_KB=$((dl * 125))
+			DL_UL_KB=$((ul * 125))
+			DL_DL_BURST=$DL_DL_KB
+			DL_UL_BURST=$DL_UL_KB
+			[ "$DL_DL_BURST" -lt 64 ] && DL_DL_BURST=64
+			[ "$DL_UL_BURST" -lt 64 ] && DL_UL_BURST=64
+			;;
+		block) ;;
+		*)
+			log "skip $cfg: unknown action $DL_ACTION"
+			return 1
+			;;
 	esac
-	case $ul in
-		''|*[!0-9]*) log "skip $cfg: bad upload rate"; return 1 ;;
-	esac
-	if [ "$dl" -lt 1 ] || [ "$dl" -gt 10000 ]; then
-		log "skip $cfg: download rate out of range"
-		return 1
-	fi
-	if [ "$ul" -lt 1 ] || [ "$ul" -gt 10000 ]; then
-		log "skip $cfg: upload rate out of range"
-		return 1
-	fi
 
 	DL_SID=$(sanitize "$cfg")
 	[ -n "$DL_SID" ] || return 1
 	DL_DOMAINS=""
+	config_list_foreach "$cfg" app add_app
 	config_list_foreach "$cfg" domain add_dom
 	[ -n "$DL_DOMAINS" ] || {
 		log "skip $cfg: no usable domain"
 		return 1
 	}
-
-	DL_DL_KB=$((dl * 125))
-	DL_UL_KB=$((ul * 125))
-	DL_DL_BURST=$DL_DL_KB
-	DL_UL_BURST=$DL_UL_KB
-	[ "$DL_DL_BURST" -lt 64 ] && DL_DL_BURST=64
-	[ "$DL_UL_BURST" -lt 64 ] && DL_UL_BURST=64
 	return 0
 }
 
@@ -182,6 +241,7 @@ _put_dns() {
 
 apply_stop() {
 	local nft=0
+	rm -f "$RUN/map"
 	if [ -f "$NFT_TABLE" ] || [ -f "$NFT_JUMP" ]; then
 		nft=1
 	fi
@@ -201,7 +261,7 @@ apply_stop() {
 }
 
 write_rule() {
-	local mark v4match
+	local mark v4match d
 	mark=$(printf '0x%x' $((19712 + DL_N)))
 	v4match=""
 	[ "$DL_HAVE_MAC" -eq 1 ] && v4match=" ether saddr $DL_MAC"
@@ -212,6 +272,10 @@ set dl4_${DL_SID} {
 	type ipv4_addr
 	flags timeout
 	timeout 2h
+}
+
+counter dlc_${DL_SID} {
+	packets 0 bytes 0
 }
 
 EOF
@@ -233,18 +297,27 @@ EOF
 		printf '\tiifname "%s" ether saddr %s ip6 daddr @dl6_%s ct mark != %s ct mark set %s comment "dl-%s-v6"\n' \
 			"$DL_LAN" "$DL_MAC" "$DL_SID" "$mark" "$mark" "$DL_SID" >> "$RULE_TMP"
 	fi
-	printf '\tct mark %s iifname "%s" limit rate over %s kbytes/second burst %s kbytes counter drop comment "dl-%s-up"\n' \
-		"$mark" "$DL_LAN" "$DL_UL_KB" "$DL_UL_BURST" "$DL_SID" >> "$RULE_TMP"
-	printf '\tct mark %s oifname "%s" limit rate over %s kbytes/second burst %s kbytes counter drop comment "dl-%s-down"\n' \
-		"$mark" "$DL_LAN" "$DL_DL_KB" "$DL_DL_BURST" "$DL_SID" >> "$RULE_TMP"
-
-	if [ "$DL_HAVE_MAC" -eq 1 ]; then
-		printf 'nftset=%s/4#inet#fw4#dl4_%s,6#inet#fw4#dl6_%s\n' \
-			"$DL_DOMAINS" "$DL_SID" "$DL_SID" >> "$DNS_TMP"
+	printf '\tct mark %s counter name "dlc_%s" comment "dl-%s-count"\n' \
+		"$mark" "$DL_SID" "$DL_SID" >> "$RULE_TMP"
+	# Enforcement is switched on and off at run time through the dl_on set, see tick_all.
+	if [ "$DL_ACTION" = block ]; then
+		printf '\tct mark %s ct mark @dl_on counter drop comment "dl-%s-block"\n' \
+			"$mark" "$DL_SID" >> "$RULE_TMP"
 	else
-		printf 'nftset=%s/4#inet#fw4#dl4_%s\n' \
-			"$DL_DOMAINS" "$DL_SID" >> "$DNS_TMP"
+		printf '\tct mark %s ct mark @dl_on iifname "%s" limit rate over %s kbytes/second burst %s kbytes counter drop comment "dl-%s-up"\n' \
+			"$mark" "$DL_LAN" "$DL_UL_KB" "$DL_UL_BURST" "$DL_SID" >> "$RULE_TMP"
+		printf '\tct mark %s ct mark @dl_on oifname "%s" limit rate over %s kbytes/second burst %s kbytes counter drop comment "dl-%s-down"\n' \
+			"$mark" "$DL_LAN" "$DL_DL_KB" "$DL_DL_BURST" "$DL_SID" >> "$RULE_TMP"
 	fi
+
+	for d in $(printf '%s' "$DL_DOMAINS" | tr '/' ' '); do
+		if [ "$DL_HAVE_MAC" -eq 1 ]; then
+			printf 'nftset=/%s/4#inet#fw4#dl4_%s,6#inet#fw4#dl6_%s\n' "$d" "$DL_SID" "$DL_SID" >> "$DNS_TMP"
+		else
+			printf 'nftset=/%s/4#inet#fw4#dl4_%s\n' "$d" "$DL_SID" >> "$DNS_TMP"
+		fi
+	done
+	printf '%s %s\n' "$DL_SID" "$mark" >> "$MAP_TMP"
 }
 
 emit_one() {
@@ -269,6 +342,10 @@ $(cat "$NFT_TMP")
 EOF
 }
 
+cleanup_tmp() {
+	rm -f "$NFT_TMP" "$RULE_TMP" "$DNS_TMP" "$JUMP_TMP" "$MAP_TMP"
+}
+
 apply_start() {
 	local enabled
 	config_load domain-limit
@@ -278,20 +355,20 @@ apply_start() {
 		return 0
 	fi
 
+	mkdir -p "$RUN"
 	DL_LAN=$(lan_device)
 	DL_N=0
 	NFT_TMP=$(mktemp /tmp/domain-limit.nft.XXXXXX) || return 1
 	RULE_TMP=$(mktemp /tmp/domain-limit.rules.XXXXXX) || return 1
 	DNS_TMP=$(mktemp /tmp/domain-limit.dns.XXXXXX) || return 1
 	JUMP_TMP=$(mktemp /tmp/domain-limit.jump.XXXXXX) || return 1
-	: > "$NFT_TMP"
-	: > "$RULE_TMP"
-	: > "$DNS_TMP"
+	MAP_TMP=$(mktemp /tmp/domain-limit.map.XXXXXX) || return 1
+	printf 'set dl_on {\n\ttype mark\n}\n\n' > "$NFT_TMP"
 
 	config_foreach emit_one rule
 
 	if [ "$DL_N" -eq 0 ]; then
-		rm -f "$NFT_TMP" "$RULE_TMP" "$DNS_TMP" "$JUMP_TMP"
+		cleanup_tmp
 		log "no active rules"
 		apply_stop
 		return 0
@@ -306,18 +383,19 @@ apply_start() {
 
 	if ! command -v nft >/dev/null 2>&1; then
 		log "nft is missing"
-		rm -f "$NFT_TMP" "$RULE_TMP" "$DNS_TMP" "$JUMP_TMP"
+		cleanup_tmp
 		return 1
 	fi
 	if ! check_nft; then
 		log "generated nft failed the syntax check; previous rules left in place"
-		rm -f "$NFT_TMP" "$RULE_TMP" "$DNS_TMP" "$JUMP_TMP"
+		cleanup_tmp
 		return 1
 	fi
 
 	mkdir -p /usr/share/nftables.d/table-pre /usr/share/nftables.d/chain-pre/forward
 	mv "$NFT_TMP" "$NFT_TABLE"
 	mv "$JUMP_TMP" "$NFT_JUMP"
+	mv "$MAP_TMP" "$RUN/map"
 	DNS_PUTS=0
 	each_confdir _put_dns
 	rm -f "$RULE_TMP" "$DNS_TMP"
@@ -329,12 +407,110 @@ apply_start() {
 		log "fw4 not found"
 		return 1
 	fi
+	tick_all
 	if [ -x /etc/init.d/dnsmasq ]; then
 		/etc/init.d/dnsmasq restart || log "dnsmasq restart failed"
 		sleep 1
 	fi
 	refresh_sets
 	log "applied $DL_N rule(s) on $DL_LAN"
+}
+
+now_vars() {
+	local dow h m
+	set -- $(date '+%s %Y%m%d %u %H %M')
+	NOW_TS=$1
+	NOW_DATE=$2
+	dow=$3
+	h=$(strip0 "$4")
+	m=$(strip0 "$5")
+	NOW_MIN=$((h * 60 + m))
+	NOW_DAY=$(day_name "$dow")
+	PREV_DAY=$(day_name $(( (dow + 5) % 7 + 1 )))
+}
+
+in_window() {
+	local cfg="$1" sched days start stop s e
+	config_get sched "$cfg" schedule always
+	[ "$sched" = window ] || return 0
+	config_get days "$cfg" weekdays
+	[ -n "$days" ] || days="mon tue wed thu fri sat sun"
+	config_get start "$cfg" start_time
+	config_get stop "$cfg" stop_time
+	s=$(to_min "$start") || return 1
+	e=$(to_min "$stop") || return 1
+	if [ "$s" -lt "$e" ]; then
+		[ "$NOW_MIN" -ge "$s" ] && [ "$NOW_MIN" -lt "$e" ] && has_day "$days" "$NOW_DAY"
+	elif [ "$s" -gt "$e" ]; then
+		# Window crosses midnight; the part after midnight belongs to the previous day.
+		if [ "$NOW_MIN" -ge "$s" ]; then
+			has_day "$days" "$NOW_DAY"
+		elif [ "$NOW_MIN" -lt "$e" ]; then
+			has_day "$days" "$PREV_DAY"
+		else
+			return 1
+		fi
+	else
+		has_day "$days" "$NOW_DAY"
+	fi
+}
+
+num_or0() {
+	case $1 in
+		''|*[!0-9]*) printf '0' ;;
+		*) printf '%s' "$1" ;;
+	esac
+}
+
+tick_one() {
+	local sid="$1" mark="$2" quota bytes day used last lastts elapsed delta win=0 enforce=0
+	config_get quota "$sid" quota_min
+	quota=$(num_or0 "$quota")
+	bytes=$(nft list counter inet fw4 "dlc_$sid" 2>/dev/null | sed -n 's/.*bytes \([0-9][0-9]*\).*/\1/p' | head -n 1)
+	bytes=$(num_or0 "$bytes")
+
+	day="" used=0 last=0 lastts=$NOW_TS
+	[ -f "$RUN/usage.$sid" ] && read -r day used last lastts _rest < "$RUN/usage.$sid"
+	used=$(num_or0 "$used")
+	last=$(num_or0 "$last")
+	lastts=$(num_or0 "$lastts")
+	[ "$day" = "$NOW_DATE" ] || used=0
+
+	elapsed=$((NOW_TS - lastts))
+	[ "$elapsed" -lt 0 ] && elapsed=0
+	[ "$elapsed" -gt $((TICK * 3)) ] && elapsed=$((TICK * 3))
+	delta=$((bytes - last))
+	# fw4 reloads recreate the counter from zero
+	[ "$delta" -lt 0 ] && delta=$bytes
+
+	in_window "$sid" && win=1
+	if [ "$win" -eq 1 ] && [ "$elapsed" -gt 0 ] && [ "$delta" -ge $((elapsed * ACTIVE_BPS)) ]; then
+		used=$((used + elapsed))
+	fi
+	if [ "$win" -eq 1 ] && { [ "$quota" -eq 0 ] || [ "$used" -ge $((quota * 60)) ]; }; then
+		enforce=1
+	fi
+
+	printf '%s %s %s %s %s %s\n' "$NOW_DATE" "$used" "$bytes" "$NOW_TS" "$win" "$enforce" > "$RUN/usage.$sid"
+	[ "$enforce" -eq 1 ] && ON="${ON:+$ON, }$mark"
+	return 0
+}
+
+tick_all() {
+	local sid mark
+	[ -f "$NFT_TABLE" ] && [ -f "$RUN/map" ] || return 0
+	now_vars
+	config_load domain-limit
+	ON=""
+	while read -r sid mark; do
+		[ -n "$sid" ] && tick_one "$sid" "$mark"
+	done < "$RUN/map"
+	if [ -n "$ON" ]; then
+		printf 'flush set inet fw4 dl_on\nadd element inet fw4 dl_on { %s }\n' "$ON" | nft -f - 2>/dev/null
+	else
+		nft flush set inet fw4 dl_on 2>/dev/null
+	fi
+	return 0
 }
 
 resolve_domain() {
@@ -361,22 +537,14 @@ resolve_domain() {
 }
 
 refresh_one() {
-	local rest d
+	local d
 	prepare_rule "$1" || return 0
-	rest=$DL_DOMAINS
-	while [ -n "$rest" ]; do
-		rest=${rest#/}
-		[ -n "$rest" ] || break
-		d=${rest%%/*}
+	for d in $(printf '%s' "$DL_DOMAINS" | tr '/' ' '); do
 		if [ "$DL_HAVE_MAC" -eq 1 ]; then
 			resolve_domain "$d" "dl4_$DL_SID" "dl6_$DL_SID"
 		else
 			resolve_domain "$d" "dl4_$DL_SID" ""
 		fi
-		case $rest in
-			*/*) rest="/${rest#*/}" ;;
-			*) rest="" ;;
-		esac
 	done
 }
 
@@ -412,18 +580,34 @@ packets_for() {
 }
 
 status_one() {
-	local cfg="$1" sid name en v4 v6 up down
+	local cfg="$1" sid name en action quota v4 v6 up down day used win enforce
 	config_get name "$cfg" name
 	config_get_bool en "$cfg" enabled 1
+	config_get action "$cfg" action limit
+	config_get quota "$cfg" quota_min
+	quota=$(num_or0 "$quota")
 	sid=$(sanitize "$cfg")
 	v4=$(count_set "dl4_$sid")
 	v6=$(count_set "dl6_$sid")
-	up=$(packets_for "dl-${sid}-up")
-	down=$(packets_for "dl-${sid}-down")
+	if [ "$action" = block ]; then
+		up=0
+		down=$(packets_for "dl-${sid}-block")
+	else
+		up=$(packets_for "dl-${sid}-up")
+		down=$(packets_for "dl-${sid}-down")
+	fi
+	day="" used=0 win=0 enforce=0
+	[ -f "$RUN/usage.$sid" ] && read -r day used _last _ts win enforce < "$RUN/usage.$sid"
+	[ "$day" = "$STATUS_DATE" ] || used=0
 	json_add_object
 	json_add_string id "$sid"
 	json_add_string name "${name:-$sid}"
 	json_add_int enabled "$en"
+	json_add_string action "$action"
+	json_add_int quota_min "$quota"
+	json_add_int used_min $(( $(num_or0 "$used") / 60 ))
+	json_add_int window "$(num_or0 "$win")"
+	json_add_int enforced "$(num_or0 "$enforce")"
 	json_add_int v4 "$v4"
 	json_add_int v6 "$v6"
 	json_add_int up_drop "$up"
@@ -454,6 +638,7 @@ do_status() {
 	else
 		active=0
 	fi
+	STATUS_DATE=$(date +%Y%m%d)
 	DL_CHAIN_DUMP=$(nft list chain inet fw4 domain_limit 2>/dev/null || true)
 	json_init
 	json_add_int flow_offloading "$flow"
@@ -489,29 +674,35 @@ with_lock() {
 }
 
 run_daemon() {
-	local now
-	trap 'ACTION=apply' USR1
+	local stamp now last_refresh=0
+	trap 'ACTION=apply' USR1 HUP
 	trap 'kill $! 2>/dev/null; exit 0' TERM INT
 	ACTION=apply
 	STAMP=$(config_stamp)
 	while true; do
 		if [ "$ACTION" != apply ]; then
-			now=$(config_stamp)
-			if [ -n "$now" ] && [ "$now" != "$STAMP" ]; then
+			stamp=$(config_stamp)
+			if [ -n "$stamp" ] && [ "$stamp" != "$STAMP" ]; then
 				ACTION=apply
 			fi
 		fi
 		if [ "$ACTION" = apply ]; then
-			ACTION=refresh
+			ACTION=tick
 			with_lock apply_start || log "apply failed"
 			STAMP=$(config_stamp)
+			last_refresh=$(date +%s)
 			continue
 		fi
-		with_lock refresh_sets || true
+		with_lock tick_all || true
+		now=$(date +%s)
+		if [ $((now - last_refresh)) -ge "$REFRESH_EVERY" ]; then
+			with_lock refresh_sets || true
+			last_refresh=$now
+		fi
 		if [ "$ACTION" = apply ]; then
 			continue
 		fi
-		sleep 90 &
+		sleep "$TICK" &
 		wait $!
 		kill $! 2>/dev/null
 	done
@@ -521,7 +712,10 @@ cmd=${1:-}
 case $cmd in
 	status) do_status ;;
 	stop) with_lock apply_stop ;;
-	refresh) with_lock refresh_sets ;;
+	refresh)
+		with_lock tick_all
+		with_lock refresh_sets
+		;;
 	daemon) run_daemon ;;
 	*)
 		echo "usage: domain-limit daemon|stop|refresh|status" >&2
