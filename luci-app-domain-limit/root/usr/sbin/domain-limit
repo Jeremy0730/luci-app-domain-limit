@@ -320,7 +320,7 @@ apply_start() {
 	mv "$JUMP_TMP" "$NFT_JUMP"
 	DNS_PUTS=0
 	each_confdir _put_dns
-	rm -f "$RULE_TMP"
+	rm -f "$RULE_TMP" "$DNS_TMP"
 	[ "$DNS_PUTS" -gt 0 ] || log "no dnsmasq config directory found"
 
 	if command -v fw4 >/dev/null 2>&1; then

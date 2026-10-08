@@ -7,10 +7,12 @@ LUCI_DESCRIPTION:=Limit the bandwidth of selected devices (by MAC or IPv4) when 
 LUCI_DEPENDS:=+luci-base +firewall4 +dnsmasq-full
 LUCI_PKGARCH:=all
 
-PKG_VERSION:=1.0.0
+PKG_VERSION:=1.0.1
 PKG_RELEASE:=1
 PKG_LICENSE:=Apache-2.0
 PKG_MAINTAINER:=Jianlong Chen
+LUCI_MAINTAINER:=$(PKG_MAINTAINER)
+LUCI_URL:=https://github.com/Jeremy0730/luci-app-domain-limit
 
 define Package/luci-app-domain-limit/conffiles
 /etc/config/domain-limit
