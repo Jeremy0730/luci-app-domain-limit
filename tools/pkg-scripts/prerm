@@ -1,0 +1,9 @@
+#!/bin/sh
+if [ -z "${IPKG_INSTROOT}" ]; then
+	if [ -x /etc/init.d/domain-limit ]; then
+		/etc/init.d/domain-limit stop || true
+		/etc/init.d/domain-limit disable || true
+	fi
+	rm -rf /tmp/luci-indexcache /tmp/luci-indexcache.* /tmp/luci-modulecache
+fi
+exit 0

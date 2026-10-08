@@ -1,0 +1,122 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build ${{ matrix.format }} (${{ matrix.sdk }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - format: apk
+            sdk: x86_64-openwrt-25.12
+          - format: ipk
+            sdk: x86_64-openwrt-24.10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check executable bits
+        run: |
+          cd luci-app-domain-limit
+          for f in root/etc/init.d/domain-limit root/usr/sbin/domain-limit root/usr/sbin/domain-limit-status; do
+            test -x "$f" || { echo "::error file=luci-app-domain-limit/$f::not executable, run: git update-index --chmod=+x luci-app-domain-limit/$f"; exit 1; }
+          done
+
+      - name: Require signing keys for releases
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          APK_PRIVATE_KEY: ${{ secrets.APK_PRIVATE_KEY }}
+          USIGN_KEY_BUILD: ${{ secrets.USIGN_KEY_BUILD }}
+        run: |
+          test -n "$APK_PRIVATE_KEY" || { echo "::error::secret APK_PRIVATE_KEY is not set"; exit 1; }
+          test -n "$USIGN_KEY_BUILD" || { echo "::error::secret USIGN_KEY_BUILD is not set"; exit 1; }
+
+      - name: Check tag matches PKG_VERSION
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          ver=$(sed -n 's/^PKG_VERSION:=//p' luci-app-domain-limit/Makefile)
+          test "v$ver" = "$GITHUB_REF_NAME" || { echo "::error::tag $GITHUB_REF_NAME != PKG_VERSION $ver"; exit 1; }
+
+      - name: Build with ImmortalWrt SDK
+        uses: openwrt/gh-action-sdk@main
+        env:
+          CONTAINER: immortalwrt/sdk
+          ARCH: ${{ matrix.sdk }}
+          PACKAGES: luci-app-domain-limit
+          INDEX: 1
+          NO_REFRESH_CHECK: 1
+          NO_SHFMT_CHECK: 1
+          PRIVATE_KEY: ${{ matrix.format == 'apk' && secrets.APK_PRIVATE_KEY || '' }}
+          KEY_BUILD: ${{ matrix.format == 'ipk' && secrets.USIGN_KEY_BUILD || '' }}
+
+      - name: Collect feed
+        run: |
+          mkdir -p feed/${{ matrix.format }}
+          cp bin/packages/*/action/* feed/${{ matrix.format }}/
+          ls -l feed/${{ matrix.format }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: feed-${{ matrix.format }}
+          path: feed/
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: feed-*
+          path: site
+          merge-multiple: true
+
+      - name: Add keys and index page
+        run: |
+          cp -r keys site/keys
+          base="https://${GITHUB_REPOSITORY_OWNER,,}.github.io/${GITHUB_REPOSITORY#*/}"
+          {
+            echo '<!doctype html><meta charset="utf-8"><title>luci-app-domain-limit feed</title><pre>'
+            echo "apk (OpenWrt/ImmortalWrt 25.12+):"
+            echo "  wget -O /etc/apk/keys/domain-limit.pem $base/keys/domain-limit.pem"
+            echo "  echo $base/apk/packages.adb >> /etc/apk/repositories.d/customfeeds.list"
+            echo
+            echo "opkg (24.10 and older):"
+            for k in keys/*; do [ "${k##*/}" = domain-limit.pem ] || echo "  wget -O /etc/opkg/keys/${k##*/} $base/$k"; done
+            echo "  echo 'src/gz domain_limit $base/ipk' >> /etc/opkg/customfeeds.conf"
+            echo '</pre>'
+          } > site/index.html
+          find site -type f | sort
+
+      - name: GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            site/apk/*.apk
+            site/ipk/*.ipk
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

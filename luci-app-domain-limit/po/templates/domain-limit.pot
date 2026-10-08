@@ -1,0 +1,104 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8"
+
+msgid "No status yet. Install and start the domain-limit service, then reopen this page."
+msgstr ""
+
+msgid "dnsmasq was built without nftset support. Install dnsmasq-full, otherwise addresses resolved by clients are not added to the limit sets. The router still resolves the domains itself every 90 seconds."
+msgstr ""
+
+msgid "Automatic loading of nftables includes (auto_includes) is disabled in the firewall. The rules on this page will not reach the forward path."
+msgstr ""
+
+msgid "Flow offloading is enabled and bypasses the limit. Disable software and hardware flow offloading under Network → Firewall. If the device has Turbo ACC, fast forwarding or NSS acceleration, disable those as well."
+msgstr ""
+
+msgid "The limit is not active yet. Turn on the main switch, add at least one rule, then save and apply."
+msgstr ""
+
+msgid "Yes"
+msgstr ""
+
+msgid "No"
+msgstr ""
+
+msgid "Rule"
+msgstr ""
+
+msgid "Enabled"
+msgstr ""
+
+msgid "IPv4 addresses"
+msgstr ""
+
+msgid "IPv6 addresses"
+msgstr ""
+
+msgid "Upload drops"
+msgstr ""
+
+msgid "Download drops"
+msgstr ""
+
+msgid "If the address count is 0, the device is probably still using its own DNS cache. Reconnect it, or wait for the cache to expire, then visit the site again."
+msgstr ""
+
+msgid "Loading…"
+msgstr ""
+
+msgid "Current status"
+msgstr ""
+
+msgid "Domain Rate Limit"
+msgstr ""
+
+msgid "Limit the speed of one device when it accesses the listed domains; other sites are not affected. Rates are in Mbps (megabits per second). Entering example.com also covers its subdomains. Devices must use the router as DNS server; Private DNS on phones or encrypted DNS in browsers prevents domain matching. Prefer a MAC address so the rule survives IP changes. With only an IPv4 address, IPv6 traffic is not limited."
+msgstr ""
+
+msgid "Main switch"
+msgstr ""
+
+msgid "Enable"
+msgstr ""
+
+msgid "LAN device"
+msgstr ""
+
+msgid "Leave empty to use the device of interface lan, usually br-lan."
+msgstr ""
+
+msgid "Device names may contain only letters, digits, dots, underscores and hyphens"
+msgstr ""
+
+msgid "Rules"
+msgstr ""
+
+msgid "Name"
+msgstr ""
+
+msgid "e.g. Living room TV"
+msgstr ""
+
+msgid "Device"
+msgstr ""
+
+msgid "Select the MAC of an online device, or enter a MAC / IPv4 address."
+msgstr ""
+
+msgid "Enter a MAC (aa:bb:cc:dd:ee:ff) or an IPv4 address"
+msgstr ""
+
+msgid "Domains"
+msgstr ""
+
+msgid "Type the domain and click Save; there is no need to click the plus button first. Do not include the protocol or path. Enter internationalized domains in punycode (starting with xn--)."
+msgstr ""
+
+msgid "Invalid domain, e.g. example.com"
+msgstr ""
+
+msgid "Download (Mbps)"
+msgstr ""
+
+msgid "Upload (Mbps)"
+msgstr ""

@@ -1,0 +1,10 @@
+#!/bin/sh
+if [ -z "${IPKG_INSTROOT}" ]; then
+	/etc/init.d/domain-limit enable
+	/etc/init.d/domain-limit start || true
+	rm -rf /tmp/luci-indexcache /tmp/luci-indexcache.* /tmp/luci-modulecache
+	if [ -x /etc/init.d/rpcd ]; then
+		/etc/init.d/rpcd reload || true
+	fi
+fi
+exit 0

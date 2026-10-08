@@ -1,0 +1,13 @@
+{
+	"admin/services/domain-limit": {
+		"title": "Domain Rate Limit",
+		"order": 90,
+		"action": {
+			"type": "view",
+			"path": "domain-limit"
+		},
+		"depends": {
+			"acl": [ "luci-app-domain-limit" ]
+		}
+	}
+}

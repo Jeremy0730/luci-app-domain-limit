@@ -1,0 +1,14 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# Firewall reloads on ifup and recreates empty address sets. Refill them.
+
+[ "$ACTION" = "ifup" ] || exit 0
+
+case "$INTERFACE" in
+	lan|wan|wan6) ;;
+	*) exit 0 ;;
+esac
+
+[ -x /usr/sbin/domain-limit ] || exit 0
+/usr/sbin/domain-limit refresh
+exit 0

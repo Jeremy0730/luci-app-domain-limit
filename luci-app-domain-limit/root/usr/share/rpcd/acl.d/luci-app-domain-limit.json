@@ -1,0 +1,14 @@
+{
+	"luci-app-domain-limit": {
+		"description": "Grant access to per-device domain rate limit",
+		"read": {
+			"uci": [ "domain-limit" ],
+			"file": {
+				"/usr/sbin/domain-limit-status": [ "exec" ]
+			}
+		},
+		"write": {
+			"uci": [ "domain-limit" ]
+		}
+	}
+}
