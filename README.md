@@ -1,104 +1,106 @@
 # luci-app-domain-limit
 
-按设备（MAC 或 IPv4）和域名限速的 LuCI 插件。只限制指定设备访问指定域名时的速度，其它网站不受影响。
+[![English](https://img.shields.io/badge/English-current-blue)](README.md) [![简体中文](https://img.shields.io/badge/简体中文-点击切换-lightgrey)](README.zh-CN.md)
 
-Per-device, per-domain bandwidth limit for OpenWrt / ImmortalWrt (fw4 + nftables + dnsmasq nftset).
+A LuCI app that limits the bandwidth of selected devices (by MAC or IPv4) only when they access selected domains. Other sites are not affected.
 
-- 适用：OpenWrt / ImmortalWrt 23.05 及以上（fw4），推荐 25.12
-- 依赖：`luci-base`、`firewall4`、`dnsmasq-full`
-- 架构无关（noarch），所有机型通用
+- Works on: OpenWrt / ImmortalWrt 23.05 and later (fw4); 25.12 recommended
+- Depends on: `luci-base`, `firewall4`, `dnsmasq-full`
+- Architecture independent (noarch), runs on any device
 
-## 安装
+## Installation
 
-### 方式一：添加软件源（推荐，之后可在「系统 → 软件包」里搜到和升级）
+### Option 1: add the package feed (recommended; the app then shows up in System → Software and can be upgraded there)
 
-**25.12 及以上（apk）**
+**25.12 and later (apk)**
 
 ```sh
 wget -O /etc/apk/keys/domain-limit.pem https://jeremy0730.github.io/luci-app-domain-limit/keys/domain-limit.pem
 echo https://jeremy0730.github.io/luci-app-domain-limit/apk/packages.adb >> /etc/apk/repositories.d/customfeeds.list
 apk update
-apk add luci-app-domain-limit luci-i18n-domain-limit-zh-cn
+apk add luci-app-domain-limit
 ```
 
-**24.10 及以下（opkg）**
+**24.10 and earlier (opkg)**
 
 ```sh
 wget -O /etc/opkg/keys/bea6a2687ea8c643 https://jeremy0730.github.io/luci-app-domain-limit/keys/bea6a2687ea8c643
 echo 'src/gz domain_limit https://jeremy0730.github.io/luci-app-domain-limit/ipk' >> /etc/opkg/customfeeds.conf
 opkg update
-opkg install luci-app-domain-limit luci-i18n-domain-limit-zh-cn
+opkg install luci-app-domain-limit
 ```
 
-添加软件源后，也可以在 LuCI「系统 → 软件包」里点「更新列表」，再搜索 `domain-limit` 安装。
+For the Simplified Chinese interface, also install `luci-i18n-domain-limit-zh-cn`.
 
-### 方式二：手动安装
+After adding the feed you can also click "Update lists" in LuCI under System → Software and search for `domain-limit`.
 
-从 [Releases](https://github.com/Jeremy0730/luci-app-domain-limit/releases) 下载对应格式的包，在「系统 → 软件包 → 上传软件包」安装，或：
+### Option 2: manual install
+
+Download the package from [Releases](https://github.com/Jeremy0730/luci-app-domain-limit/releases) and install it with System → Software → Upload Package, or:
 
 ```sh
 apk add --allow-untrusted ./luci-app-domain-limit-*.apk   # 25.12+
-opkg install ./luci-app-domain-limit_*_all.ipk            # 24.10-
+opkg install ./luci-app-domain-limit_*_all.ipk            # 24.10 and earlier
 ```
 
-## 使用
+## Usage
 
-菜单位置：「服务 → 域名限速」。
+Menu: Services → Domain Rate Limit.
 
-1. 打开总开关。
-2. 添加规则：选择设备（MAC 优先），填写域名（`example.com` 会同时匹配所有子域名），填写上下行速率（Mbps）。
-3. 保存并应用。页面上方会显示每条规则已收录的 IP 数量和丢包计数。
+1. Turn on the main switch.
+2. Add a rule: pick a device (MAC preferred), enter domains (`example.com` also matches all of its subdomains), and set download/upload rates in Mbps.
+3. Save & Apply. The status section shows how many IP addresses each rule has collected and how many packets were dropped.
 
-注意：
+Notes:
 
-- 被限速的设备必须使用路由器做 DNS。手机「私人 DNS」、浏览器「安全 DNS（DoH）」会绕过域名匹配。可以在防火墙里把 LAN 的 53 端口劫持到路由器。
-- 必须关闭软件/硬件流量分载（flow offloading）、Turbo ACC、NSS 等加速，否则限速被绕过。
-- 只填 IPv4 地址时，只限制 IPv4；填 MAC 时 IPv4 和 IPv6 都限制。
+- Limited devices must use the router as their DNS server. Private DNS on phones or secure DNS (DoH) in browsers bypasses domain matching. You can redirect LAN port 53 to the router in the firewall.
+- Software/hardware flow offloading, Turbo ACC, NSS and similar acceleration must be off, otherwise traffic bypasses the limit.
+- With an IPv4 address only IPv4 traffic is limited; with a MAC address both IPv4 and IPv6 are limited.
 
-## 工作原理
+## How it works
 
-- dnsmasq 的 `nftset=` 把目标域名解析出的地址写入 nftables 集合；守护进程每 90 秒也会自己解析一次补充。
-- fw4 的 forward 链里，来自目标设备、发往集合内地址的连接被打上 conntrack 标记（包括规则生效前已经建立的连接）。
-- 带标记的流量按上下行分别用 `limit rate over … drop` 限速。
+- dnsmasq `nftset=` adds the addresses that the target domains resolve to into nftables sets; the daemon also resolves the domains itself every 90 seconds.
+- In the fw4 forward chain, connections from the target device to addresses in the set get a conntrack mark (including connections opened before the rule took effect).
+- Marked traffic is limited per direction with `limit rate over … drop`.
 
-## 编译
+## Building
 
-### 使用 OpenWrt / ImmortalWrt SDK
+### With the OpenWrt / ImmortalWrt SDK
 
 ```sh
-# 在 SDK 根目录
+# in the SDK root
 echo "src-git domain_limit https://github.com/Jeremy0730/luci-app-domain-limit.git" >> feeds.conf.default
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 make package/luci-app-domain-limit/compile V=s
 ```
 
-也可以把 `luci-app-domain-limit/` 目录复制到 `feeds/luci/applications/` 或 `package/` 下编译。
+You can also copy the `luci-app-domain-limit/` directory into `feeds/luci/applications/` or `package/` and build it there.
 
 ### GitHub Actions
 
-`.github/workflows/build.yml` 用 ImmortalWrt SDK 编译 apk（25.12）和 ipk（24.10）两种格式，并生成签名的软件源索引。
+`.github/workflows/build.yml` builds apk (25.12) and ipk (24.10) packages with the ImmortalWrt SDK and generates a signed package index.
 
-推送 `v*` 标签（必须与 Makefile 里的 `PKG_VERSION` 一致，例如 `v1.0.0`）时会：
+Pushing a `v*` tag (it must match `PKG_VERSION` in the Makefile, e.g. `v1.0.0`):
 
-1. 把安装包上传到 GitHub Release；
-2. 把软件源发布到 GitHub Pages：`https://jeremy0730.github.io/luci-app-domain-limit/`。
+1. uploads the packages to a GitHub Release;
+2. publishes the package feed to GitHub Pages at `https://jeremy0730.github.io/luci-app-domain-limit/`.
 
-需要在仓库 Settings 里设置：
+Repository settings required:
 
-- **Secrets and variables → Actions**：
-  - `APK_PRIVATE_KEY`：apk 索引签名私钥（ECDSA P-256 PEM）
-  - `USIGN_KEY_BUILD`：opkg 索引签名私钥（usign 格式）
-- **Pages → Build and deployment → Source**：选 GitHub Actions
+- **Secrets and variables → Actions** (repository secrets):
+  - `APK_PRIVATE_KEY`: private key for signing the apk index (ECDSA P-256 PEM)
+  - `USIGN_KEY_BUILD`: private key for signing the opkg index (usign format)
+- **Pages → Build and deployment → Source**: GitHub Actions
 
-对应的公钥在 [`keys/`](keys/)。私钥丢失后需要生成新密钥、替换 `keys/` 并通知用户重新导入公钥。
+The matching public keys are in [`keys/`](keys/). If a private key is lost, generate a new pair, replace the file in `keys/`, and ask users to import the new public key.
 
-### 本地快速打包（不需要 SDK，不含翻译）
+### Quick local build (no SDK, no translations)
 
 ```sh
-python tools/build_ipk.py   # 输出 dist/*.ipk 和 dist/*.apk
+python tools/build_ipk.py   # writes dist/*.ipk and dist/*.apk
 ```
 
-## 许可证
+## License
 
 [Apache-2.0](LICENSE)
