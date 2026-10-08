@@ -427,10 +427,14 @@ now_vars() {
 	NOW_MIN=$((h * 60 + m))
 	NOW_DAY=$(day_name "$dow")
 	PREV_DAY=$(day_name $(( (dow + 5) % 7 + 1 )))
+	# Noon of the previous day, safe against DST shifts.
+	PREV_DATE=$(date -d "@$((NOW_TS - NOW_MIN * 60 - 43200))" '+%Y%m%d' 2>/dev/null)
 }
 
+# Sets WIN_KEY to the date the current window started; usage is counted per key.
 in_window() {
 	local cfg="$1" sched days start stop s e
+	WIN_KEY="$NOW_DATE"
 	config_get sched "$cfg" schedule always
 	[ "$sched" = window ] || return 0
 	config_get days "$cfg" weekdays
@@ -446,6 +450,7 @@ in_window() {
 		if [ "$NOW_MIN" -ge "$s" ]; then
 			has_day "$days" "$NOW_DAY"
 		elif [ "$NOW_MIN" -lt "$e" ]; then
+			WIN_KEY="$PREV_DATE"
 			has_day "$days" "$PREV_DAY"
 		else
 			return 1
@@ -463,18 +468,17 @@ num_or0() {
 }
 
 tick_one() {
-	local sid="$1" mark="$2" quota bytes day used last lastts elapsed delta win=0 enforce=0
+	local sid="$1" mark="$2" quota bytes key used last lastts elapsed delta win=0 enforce=0
 	config_get quota "$sid" quota_min
 	quota=$(num_or0 "$quota")
 	bytes=$(nft list counter inet fw4 "dlc_$sid" 2>/dev/null | sed -n 's/.*bytes \([0-9][0-9]*\).*/\1/p' | head -n 1)
 	bytes=$(num_or0 "$bytes")
 
-	day="" used=0 last=0 lastts=$NOW_TS
-	[ -f "$RUN/usage.$sid" ] && read -r day used last lastts _rest < "$RUN/usage.$sid"
+	key="" used=0 last=0 lastts=$NOW_TS
+	[ -f "$RUN/usage.$sid" ] && read -r key used last lastts _rest < "$RUN/usage.$sid"
 	used=$(num_or0 "$used")
 	last=$(num_or0 "$last")
 	lastts=$(num_or0 "$lastts")
-	[ "$day" = "$NOW_DATE" ] || used=0
 
 	elapsed=$((NOW_TS - lastts))
 	[ "$elapsed" -lt 0 ] && elapsed=0
@@ -483,7 +487,15 @@ tick_one() {
 	# fw4 reloads recreate the counter from zero
 	[ "$delta" -lt 0 ] && delta=$bytes
 
-	in_window "$sid" && win=1
+	# The allowance belongs to one window and is cleared when the window ends.
+	if in_window "$sid"; then
+		win=1
+		[ "$key" = "$WIN_KEY" ] || used=0
+		key="$WIN_KEY"
+	else
+		used=0
+		key="-"
+	fi
 	if [ "$win" -eq 1 ] && [ "$elapsed" -gt 0 ] && [ "$delta" -ge $((elapsed * ACTIVE_BPS)) ]; then
 		used=$((used + elapsed))
 	fi
@@ -491,7 +503,7 @@ tick_one() {
 		enforce=1
 	fi
 
-	printf '%s %s %s %s %s %s\n' "$NOW_DATE" "$used" "$bytes" "$NOW_TS" "$win" "$enforce" > "$RUN/usage.$sid"
+	printf '%s %s %s %s %s %s\n' "$key" "$used" "$bytes" "$NOW_TS" "$win" "$enforce" > "$RUN/usage.$sid"
 	[ "$enforce" -eq 1 ] && ON="${ON:+$ON, }$mark"
 	return 0
 }
@@ -580,7 +592,7 @@ packets_for() {
 }
 
 status_one() {
-	local cfg="$1" sid name en action quota v4 v6 up down day used win enforce
+	local cfg="$1" sid name en action quota v4 v6 up down used win enforce
 	config_get name "$cfg" name
 	config_get_bool en "$cfg" enabled 1
 	config_get action "$cfg" action limit
@@ -596,9 +608,8 @@ status_one() {
 		up=$(packets_for "dl-${sid}-up")
 		down=$(packets_for "dl-${sid}-down")
 	fi
-	day="" used=0 win=0 enforce=0
-	[ -f "$RUN/usage.$sid" ] && read -r day used _last _ts win enforce < "$RUN/usage.$sid"
-	[ "$day" = "$STATUS_DATE" ] || used=0
+	used=0 win=0 enforce=0
+	[ -f "$RUN/usage.$sid" ] && read -r _key used _last _ts win enforce < "$RUN/usage.$sid"
 	json_add_object
 	json_add_string id "$sid"
 	json_add_string name "${name:-$sid}"
@@ -638,7 +649,6 @@ do_status() {
 	else
 		active=0
 	fi
-	STATUS_DATE=$(date +%Y%m%d)
 	DL_CHAIN_DUMP=$(nft list chain inet fw4 domain_limit 2>/dev/null || true)
 	json_init
 	json_add_int flow_offloading "$flow"

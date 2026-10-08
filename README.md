@@ -7,7 +7,7 @@ A LuCI app that limits or blocks selected apps and domains for selected devices 
 - **App presets**: pick Douyin, Kuaishou, Weibo, Xiaohongshu, Bilibili, iQIYI, Youku, TikTok, YouTube, Netflix, Instagram, Twitch, Steam, Windows Update or Apple software updates instead of typing domains; add extra domains as needed
 - **Limit or block**: cap download/upload in Mbps, or drop the traffic entirely
 - **Time windows**: apply a rule only on chosen weekdays between two times (windows may cross midnight, e.g. 22:00–07:00)
-- **Daily allowance**: let a device use the apps freely for N minutes per day, then apply the limit or block; the count resets at midnight
+- **Allowance**: let a device use the apps freely for N minutes within each time window, then apply the limit or block; the count is cleared when the window ends (at midnight for rules without a window)
 
 - Works on: OpenWrt / ImmortalWrt 23.05 and later (fw4); 25.12 recommended
 - Depends on: `luci-base`, `firewall4`, `dnsmasq-full`
@@ -54,14 +54,14 @@ Menu: Services → Domain Rate Limit.
 
 1. Turn on the main switch.
 2. Add a rule. On the **Rule** tab pick a device (MAC preferred), select apps and/or enter extra domains (`example.com` also matches all of its subdomains), then choose **Limit speed** with download/upload rates in Mbps, or **Block**.
-3. Optionally, on the **Time control** tab set the days and time window, and a daily allowance in minutes.
-4. Save & Apply. The status section shows each rule's state (limiting, blocking, allowance left, outside time window), minutes used today, collected IP addresses and dropped packets.
+3. Optionally, on the **Time control** tab set the days and time window, and an allowance in minutes.
+4. Save & Apply. The status section shows each rule's state (limiting, blocking, allowance left, outside time window), minutes used in the current window, collected IP addresses and dropped packets.
 
 Notes:
 
 - App domain lists are best effort. Apps change their domains and some use their own DNS (HTTPDNS) or hard-coded IPs, so a few requests may slip through. Add missing domains under Extra domains.
-- Only minutes with real traffic (about 20 kbit/s or more) count towards the daily allowance. Usage is kept in RAM and starts from zero after a reboot.
-- Time windows use the router's time zone (System → System).
+- Only minutes with real traffic (about 20 kbit/s or more) count towards the allowance. Usage is kept in RAM and starts from zero after a reboot.
+- Time windows use the router's time zone (System → System). A window that crosses midnight, e.g. 22:00–07:00, is one window, so its allowance is not cleared at midnight. For a whole-day window set the same start and end time.
 
 - Limited devices must use the router as their DNS server. Private DNS on phones or secure DNS (DoH) in browsers bypasses domain matching. You can redirect LAN port 53 to the router in the firewall.
 - Software/hardware flow offloading, Turbo ACC, NSS and similar acceleration must be off, otherwise traffic bypasses the limit.

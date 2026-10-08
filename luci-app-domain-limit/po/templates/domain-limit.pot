@@ -61,7 +61,7 @@ msgstr ""
 msgid "State"
 msgstr ""
 
-msgid "Used today"
+msgid "Used"
 msgstr ""
 
 msgid "IPv4 addresses"
@@ -193,13 +193,16 @@ msgstr ""
 msgid "A window that ends before it starts runs past midnight, e.g. 22:00 to 07:00. The same start and end means the whole day."
 msgstr ""
 
-msgid "Daily allowance (minutes)"
+msgid "Allowance (minutes)"
 msgstr ""
 
-msgid "Minutes per day the apps can be used freely before the action applies; the count resets at midnight. Only minutes with real traffic count. 0 or empty applies the action right away."
+msgid "Minutes the apps can be used freely within each time window before the action applies. The count starts when the window opens and is cleared when it ends; without a time window it is cleared at midnight. Only minutes with real traffic count. 0 or empty applies the action right away."
 msgstr ""
 
 msgid "Every day"
+msgstr ""
+
+msgid "after %d min per window"
 msgstr ""
 
 msgid "after %d min/day"

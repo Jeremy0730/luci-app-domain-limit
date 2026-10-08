@@ -108,7 +108,7 @@ function renderStatus(st) {
 			E('tr', { 'class': 'tr table-titles' }, [
 				E('th', { 'class': 'th' }, _('Rule')),
 				E('th', { 'class': 'th' }, _('State')),
-				E('th', { 'class': 'th' }, _('Used today')),
+				E('th', { 'class': 'th' }, _('Used')),
 				E('th', { 'class': 'th' }, _('IPv4 addresses')),
 				E('th', { 'class': 'th' }, _('IPv6 addresses')),
 				E('th', { 'class': 'th' }, _('Upload drops')),
@@ -310,11 +310,11 @@ return view.extend({
 		o.description = _('A window that ends before it starts runs past midnight, e.g. 22:00 to 07:00. The same start and end means the whole day.');
 		o.depends('schedule', 'window');
 
-		o = s.taboption('time', form.Value, 'quota_min', _('Daily allowance (minutes)'));
+		o = s.taboption('time', form.Value, 'quota_min', _('Allowance (minutes)'));
 		o.modalonly = true;
 		o.datatype = 'range(0,1440)';
 		o.placeholder = '0';
-		o.description = _('Minutes per day the apps can be used freely before the action applies; the count resets at midnight. Only minutes with real traffic count. 0 or empty applies the action right away.');
+		o.description = _('Minutes the apps can be used freely within each time window before the action applies. The count starts when the window opens and is cleared when it ends; without a time window it is cleared at midnight. Only minutes with real traffic count. 0 or empty applies the action right away.');
 
 		o = s.option(form.DummyValue, '_when', _('When'));
 		o.modalonly = false;
@@ -330,7 +330,9 @@ return view.extend({
 			}
 			var quota = +get('quota_min') || 0;
 			if (quota > 0)
-				text += ', ' + _('after %d min/day').format(quota);
+				text += ', ' + (get('schedule') == 'window'
+					? _('after %d min per window').format(quota)
+					: _('after %d min/day').format(quota));
 			return text;
 		};
 

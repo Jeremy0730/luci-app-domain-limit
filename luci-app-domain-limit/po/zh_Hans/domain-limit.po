@@ -34,7 +34,7 @@ msgid "Limiting"
 msgstr "限速中"
 
 msgid "Allowance left"
-msgstr "额度未用完"
+msgstr "时长未用完"
 
 msgid "Outside time window"
 msgstr "不在生效时段"
@@ -66,8 +66,8 @@ msgstr "规则"
 msgid "State"
 msgstr "状态"
 
-msgid "Used today"
-msgstr "今日已用"
+msgid "Used"
+msgstr "已用"
 
 msgid "IPv4 addresses"
 msgstr "已收录 IPv4"
@@ -198,14 +198,17 @@ msgstr "结束"
 msgid "A window that ends before it starts runs past midnight, e.g. 22:00 to 07:00. The same start and end means the whole day."
 msgstr "结束早于开始表示跨过午夜，例如 22:00 到 07:00。开始和结束相同表示全天。"
 
-msgid "Daily allowance (minutes)"
-msgstr "每日额度（分钟）"
+msgid "Allowance (minutes)"
+msgstr "可用时长（分钟）"
 
-msgid "Minutes per day the apps can be used freely before the action applies; the count resets at midnight. Only minutes with real traffic count. 0 or empty applies the action right away."
-msgstr "每天可以不受限制使用的分钟数，用完后才执行上面的动作，午夜清零。只统计真正有流量的分钟。填 0 或留空表示立即执行。"
+msgid "Minutes the apps can be used freely within each time window before the action applies. The count starts when the window opens and is cleared when it ends; without a time window it is cleared at midnight. Only minutes with real traffic count. 0 or empty applies the action right away."
+msgstr "每个时段内可以不受限制使用的分钟数，用完后才执行上面的动作。时段开始时从零累计，时段结束时清零；没有设置时段时每天午夜清零。只统计真正有流量的分钟。填 0 或留空表示立即执行。"
 
 msgid "Every day"
 msgstr "每天"
+
+msgid "after %d min per window"
+msgstr "每个时段用满 %d 分钟后"
 
 msgid "after %d min/day"
 msgstr "每天用满 %d 分钟后"
