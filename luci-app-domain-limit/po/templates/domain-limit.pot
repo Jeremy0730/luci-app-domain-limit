@@ -28,6 +28,9 @@ msgstr ""
 msgid "Limiting"
 msgstr ""
 
+msgid "Limiting at %s / %s Mbps"
+msgstr ""
+
 msgid "Allowance left"
 msgstr ""
 
@@ -37,7 +40,7 @@ msgstr ""
 msgid "No status yet. Install and start the domain-limit service, then reopen this page."
 msgstr ""
 
-msgid "dnsmasq was built without nftset support. Install dnsmasq-full, otherwise addresses resolved by clients are not added to the limit sets. The router still resolves the domains itself every 90 seconds."
+msgid "dnsmasq was built without nftset support. Install dnsmasq-full, otherwise addresses resolved by clients are not added to the limit sets. The router still resolves the domains itself every 10 minutes."
 msgstr ""
 
 msgid "Automatic loading of nftables includes (auto_includes) is disabled in the firewall. The rules on this page will not reach the forward path."
@@ -91,7 +94,88 @@ msgstr ""
 msgid "Domain Rate Limit"
 msgstr ""
 
-msgid "Limit or block selected apps and domains for one device, optionally only at certain times or after a daily allowance. Rates are in Mbps (megabits per second). Entering example.com also covers its subdomains. Devices must use the router as DNS server; Private DNS on phones or encrypted DNS in browsers prevents domain matching. Prefer a MAC address so the rule survives IP changes. With only an IPv4 address, IPv6 traffic is not limited."
+msgid "One rule is one device and the apps you pick. Limit it right away, after some free minutes, or in steps. Steps are stages of that same rule. Each device can have only one rule. Rates are Mbps. example.com includes its subdomains. The device must use this router for DNS. Prefer a MAC address. With only an IPv4 address, IPv6 is not limited."
+msgstr ""
+
+msgid "Not limited yet"
+msgstr ""
+
+msgid "Each device can have only one rule. Use steps when that device should get stricter over time."
+msgstr ""
+
+msgid "Device and apps"
+msgstr ""
+
+msgid "Limit"
+msgstr ""
+
+msgid "How"
+msgstr ""
+
+msgid "Right away"
+msgstr ""
+
+msgid "Free for a while, then one limit"
+msgstr ""
+
+msgid "Tighten in steps"
+msgstr ""
+
+msgid "Right away starts as soon as the rule is in effect. Free for a while allows normal use for the minutes below, then applies one limit or block. Tighten in steps is a ladder on this same rule: before the first step nothing is limited, then each step is stricter."
+msgstr ""
+
+msgid "Then"
+msgstr ""
+
+msgid "Free minutes"
+msgstr ""
+
+msgid "Normal use is allowed for this many minutes of real traffic. Then the action above applies. The count clears when the time window ends, or at midnight if the rule is always on."
+msgstr ""
+
+msgid "Step %d: after (minutes)"
+msgstr ""
+
+msgid "Traffic is not limited before this minute. Leave a later step blank to stop the ladder. Three steps is the maximum."
+msgstr ""
+
+msgid "The first step needs a minute."
+msgstr ""
+
+msgid "Minutes are 0-1440."
+msgstr ""
+
+msgid "Fill the previous step first."
+msgstr ""
+
+msgid "Each step must be later than the one above."
+msgstr ""
+
+msgid "Step %d: then"
+msgstr ""
+
+msgid "Step %d: download (Mbps)"
+msgstr ""
+
+msgid "Step %d: upload (Mbps)"
+msgstr ""
+
+msgid "Enter a rate from 1 to 10000."
+msgstr ""
+
+msgid "After %d min: Block"
+msgstr ""
+
+msgid "After %d min: %s / %s Mbps"
+msgstr ""
+
+msgid "Hours"
+msgstr ""
+
+msgid "All day"
+msgstr ""
+
+msgid "Only during these hours"
 msgstr ""
 
 msgid "Main switch"
@@ -133,7 +217,10 @@ msgstr ""
 msgid "Domains: %d"
 msgstr ""
 
-msgid "Select the MAC of an online device, or enter a MAC / IPv4 address."
+msgid "Select the MAC of an online device, or enter a MAC / IPv4 address. Each device can have only one rule."
+msgstr ""
+
+msgid "This device already has a rule (%s). Edit that rule instead of adding another."
 msgstr ""
 
 msgid "Enter a MAC (aa:bb:cc:dd:ee:ff) or an IPv4 address"
@@ -196,7 +283,22 @@ msgstr ""
 msgid "Allowance (minutes)"
 msgstr ""
 
-msgid "Minutes the apps can be used freely within each time window before the action applies. The count starts when the window opens and is cleared when it ends; without a time window it is cleared at midnight. Only minutes with real traffic count. 0 or empty applies the action right away."
+msgid "Minutes the apps can be used freely within each time window before the action applies. The count starts when the window opens and is cleared when it ends; without a time window it is cleared at midnight. Only minutes with real traffic count. 0 or empty applies the action right away. Ignored when steps are set."
+msgstr ""
+
+msgid "Steps"
+msgstr ""
+
+msgid "After this many minutes of real use, apply a tighter limit. 30 4 means 4 Mbps each way, 30 4 2 means 4 Mbps down and 2 Mbps up, and 90 block cuts off access. Up to 4 steps, for example 30 4, then 60 2, then 90 block. Traffic is unlimited before the first step. When any step is set, these steps replace the allowance above and the action on the Rule tab. Counts are cleared with the time window."
+msgstr ""
+
+msgid "Use 30 4, 30 4 2 or 90 block. Minutes are 0-1440 and rates are 1-10000."
+msgstr ""
+
+msgid "At most 4 steps."
+msgstr ""
+
+msgid "Each step must use a different number of minutes."
 msgstr ""
 
 msgid "Every day"

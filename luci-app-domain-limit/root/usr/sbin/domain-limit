@@ -10,14 +10,22 @@ APPS=/usr/share/domain-limit/apps.json
 RUN=/var/run/domain-limit
 LOCK=/var/lock/domain-limit.lock
 TICK=30
-REFRESH_EVERY=90
-# Traffic below this average rate does not count towards the daily allowance (background chatter).
+# Client lookups still fill the sets immediately through dnsmasq nftset.
+REFRESH_EVERY=600
+# One enforcement set per step. assign_tier and apply_tiers must list the same indexes.
+MAX_TIER=3
+# Traffic below this average rate does not count towards the allowance (background chatter).
 ACTIVE_BPS=2500
+APPLY_LOG=0
 
 set -f
 
 log() {
 	logger -t domain-limit "$*"
+}
+
+clog() {
+	[ "$APPLY_LOG" = 1 ] && log "$*"
 }
 
 sanitize() {
@@ -143,14 +151,261 @@ lan_device() {
 	printf '%s' "$d"
 }
 
+# One device, one rule. A later rule for the same MAC or its current DHCP address is skipped.
+SEEN_DEV=""
+
+remember_device() {
+	SEEN_DEV="$SEEN_DEV $1"
+}
+
+device_taken() {
+	local d="$1" peer
+	case " $SEEN_DEV " in
+		*" $d "*) return 0 ;;
+	esac
+	peer=""
+	if [ -r /tmp/dhcp.leases ]; then
+		peer=$(awk -v d="$d" 'BEGIN { d = tolower(d) }
+			{ m = tolower($2); ip = tolower($3) }
+			m == d { print ip; exit }
+			ip == d { print m; exit }' /tmp/dhcp.leases)
+	fi
+	[ -n "$peer" ] || return 1
+	case " $SEEN_DEV " in
+		*" $peer "*) return 0 ;;
+	esac
+	return 1
+}
+
+valid_mbps() {
+	local n
+	case $1 in
+		''|*[!0-9]*) return 1 ;;
+	esac
+	n=$(strip0 "$1")
+	[ "$n" -ge 1 ] && [ "$n" -le 10000 ]
+}
+
+valid_minutes() {
+	local n
+	case $1 in
+		''|*[!0-9]*) return 1 ;;
+	esac
+	n=$(strip0 "$1")
+	[ "$n" -le 1440 ]
+}
+
+# One list item: "30 4", "30 4 2" or "90 block".
+step_collect() {
+	local raw="$1" min act dl ul
+	set -- $raw
+	if [ $# -lt 2 ] || [ $# -gt 3 ] || ! valid_minutes "$1"; then
+		clog "ignore step: $raw"
+		return 0
+	fi
+	min=$(strip0 "$1")
+	if [ "$2" = block ]; then
+		if [ $# -ne 2 ]; then
+			clog "ignore step: $raw"
+			return 0
+		fi
+		act=block
+		dl=0
+		ul=0
+	elif [ $# -eq 2 ]; then
+		if ! valid_mbps "$2"; then
+			clog "ignore step: $raw"
+			return 0
+		fi
+		act=limit
+		dl=$(strip0 "$2")
+		ul=$dl
+	else
+		if ! valid_mbps "$2" || ! valid_mbps "$3"; then
+			clog "ignore step: $raw"
+			return 0
+		fi
+		act=limit
+		dl=$(strip0 "$2")
+		ul=$(strip0 "$3")
+	fi
+	case "
+$CS_MINS
+" in
+		*"
+$min
+"*)
+			clog "rule $CS_CFG: duplicate step at $min min, keeping the first"
+			return 0
+			;;
+	esac
+	CS_MINS="${CS_MINS}
+$min"
+	CS_LINES="${CS_LINES:+$CS_LINES
+}$min $act $dl $ul"
+}
+
+append_stage() {
+	local min="$1" act="$2" dl="$3" ul="$4"
+	case "
+$CS_MINS
+" in
+		*"
+$min
+"*)
+			clog "rule $CS_CFG: duplicate step at $min min, keeping the first"
+			return 0
+			;;
+	esac
+	CS_MINS="${CS_MINS}
+$min"
+	CS_LINES="${CS_LINES:+$CS_LINES
+}$min $act $dl $ul"
+}
+
+finish_lines() {
+	local spec n
+	[ -n "$CS_LINES" ] || return 1
+	spec=$(printf '%s\n' "$CS_LINES" | sort -n)
+	n=$(printf '%s\n' "$spec" | grep -c .)
+	if [ "$n" -gt "$MAX_TIER" ]; then
+		clog "rule $CS_CFG: more than $MAX_TIER steps, the later ones are ignored"
+		spec=$(printf '%s\n' "$spec" | head -n "$MAX_TIER")
+		n=$MAX_TIER
+	fi
+	STEP_SPEC=$spec
+	STEP_N=$n
+	STEPPED=1
+	CAP_MIN=$(printf '%s\n' "$STEP_SPEC" | awk 'END { print $1 }')
+	CAP_MIN=$(num_or0 "$CAP_MIN")
+	return 0
+}
+
+# s1_* .. s3_* in form order. A blank minute ends the ladder.
+collect_named_stages() {
+	local cfg="$1" i min act dl ul
+	i=1
+	while [ "$i" -le "$MAX_TIER" ]; do
+		config_get min "$cfg" "s${i}_min"
+		[ -n "$min" ] || return 0
+		if ! valid_minutes "$min"; then
+			clog "skip $cfg: bad minutes on step $i"
+			return 1
+		fi
+		min=$(strip0 "$min")
+		config_get act "$cfg" "s${i}_action" limit
+		if [ "$act" = block ]; then
+			append_stage "$min" block 0 0
+		else
+			config_get dl "$cfg" "s${i}_dl"
+			config_get ul "$cfg" "s${i}_ul"
+			if ! valid_mbps "$dl" || ! valid_mbps "$ul"; then
+				clog "skip $cfg: bad rate on step $i"
+				return 1
+			fi
+			append_stage "$min" limit "$(strip0 "$dl")" "$(strip0 "$ul")"
+		fi
+		i=$((i + 1))
+	done
+	return 0
+}
+
+# One stage at $2 minutes using the rule's single action and rates.
+apply_single() {
+	local cfg="$1" quota="$2" action dl ul
+	quota=$(num_or0 "$quota")
+	if [ "$quota" -gt 1440 ]; then
+		clog "skip $cfg: allowance out of range"
+		return 1
+	fi
+	config_get action "$cfg" action limit
+	case $action in
+		block)
+			STEP_SPEC="$quota block 0 0"
+			;;
+		limit)
+			config_get dl "$cfg" dl_mbps
+			config_get ul "$cfg" ul_mbps
+			case $dl in
+				''|*[!0-9]*) clog "skip $cfg: bad download rate"; return 1 ;;
+			esac
+			case $ul in
+				''|*[!0-9]*) clog "skip $cfg: bad upload rate"; return 1 ;;
+			esac
+			dl=$(strip0 "$dl")
+			ul=$(strip0 "$ul")
+			if [ "$dl" -lt 1 ] || [ "$dl" -gt 10000 ]; then
+				clog "skip $cfg: download rate out of range"
+				return 1
+			fi
+			if [ "$ul" -lt 1 ] || [ "$ul" -gt 10000 ]; then
+				clog "skip $cfg: upload rate out of range"
+				return 1
+			fi
+			STEP_SPEC="$quota limit $dl $ul"
+			;;
+		*)
+			clog "skip $cfg: unknown action $action"
+			return 1
+			;;
+	esac
+	STEP_N=1
+	STEPPED=0
+	CAP_MIN=$quota
+	return 0
+}
+
+# Sets STEP_SPEC (sorted "minutes action dl ul"), STEP_N, STEPPED and CAP_MIN.
+# policy=steps is one ladder on this rule. Without policy, a legacy step list
+# still wins; otherwise one stage reproduces the single allowance and action.
+collect_steps() {
+	local cfg="$1" policy quota
+	CS_CFG=$cfg
+	CS_LINES=""
+	CS_MINS=""
+	STEP_SPEC=""
+	STEP_N=0
+	STEPPED=0
+	CAP_MIN=0
+	config_get policy "$cfg" policy
+	case $policy in
+		steps)
+			collect_named_stages "$cfg" || return 1
+			if [ -z "$CS_LINES" ]; then
+				config_list_foreach "$cfg" step step_collect
+			fi
+			if finish_lines; then
+				return 0
+			fi
+			clog "skip $cfg: steps need a first stage"
+			return 1
+			;;
+		now)
+			apply_single "$cfg" 0
+			return $?
+			;;
+		later)
+			config_get quota "$cfg" quota_min
+			apply_single "$cfg" "$quota"
+			return $?
+			;;
+	esac
+	config_list_foreach "$cfg" step step_collect
+	if [ -n "$CS_LINES" ]; then
+		finish_lines
+		return $?
+	fi
+	config_get quota "$cfg" quota_min
+	apply_single "$cfg" "$quota"
+}
+
 prepare_rule() {
 	local cfg="$1"
-	local enabled device dl ul
+	local enabled device
 	config_get_bool enabled "$cfg" enabled 1
 	[ "$enabled" -eq 1 ] || return 1
 
 	config_get device "$cfg" device
-	config_get DL_ACTION "$cfg" action limit
 	device=$(printf '%s' "$device" | tr 'A-F' 'a-f' | tr -d ' \t\r')
 
 	DL_HAVE_MAC=0
@@ -167,41 +422,15 @@ prepare_rule() {
 		log "skip $cfg: device must be a MAC or IPv4"
 		return 1
 	fi
-
-	case $DL_ACTION in
-		limit)
-			config_get dl "$cfg" dl_mbps
-			config_get ul "$cfg" ul_mbps
-			case $dl in
-				''|*[!0-9]*) log "skip $cfg: bad download rate"; return 1 ;;
-			esac
-			case $ul in
-				''|*[!0-9]*) log "skip $cfg: bad upload rate"; return 1 ;;
-			esac
-			if [ "$dl" -lt 1 ] || [ "$dl" -gt 10000 ]; then
-				log "skip $cfg: download rate out of range"
-				return 1
-			fi
-			if [ "$ul" -lt 1 ] || [ "$ul" -gt 10000 ]; then
-				log "skip $cfg: upload rate out of range"
-				return 1
-			fi
-			DL_DL_KB=$((dl * 125))
-			DL_UL_KB=$((ul * 125))
-			DL_DL_BURST=$DL_DL_KB
-			DL_UL_BURST=$DL_UL_KB
-			[ "$DL_DL_BURST" -lt 64 ] && DL_DL_BURST=64
-			[ "$DL_UL_BURST" -lt 64 ] && DL_UL_BURST=64
-			;;
-		block) ;;
-		*)
-			log "skip $cfg: unknown action $DL_ACTION"
-			return 1
-			;;
-	esac
+	if device_taken "$device"; then
+		log "skip $cfg: this device already has a rule"
+		return 1
+	fi
+	remember_device "$device"
 
 	DL_SID=$(sanitize "$cfg")
 	[ -n "$DL_SID" ] || return 1
+	collect_steps "$cfg" || return 1
 	DL_DOMAINS=""
 	config_list_foreach "$cfg" app add_app
 	config_list_foreach "$cfg" domain add_dom
@@ -261,7 +490,7 @@ apply_stop() {
 }
 
 write_rule() {
-	local mark v4match d
+	local mark v4match d idx act dl ul dl_kb ul_kb dl_burst ul_burst _min
 	mark=$(printf '0x%x' $((19712 + DL_N)))
 	v4match=""
 	[ "$DL_HAVE_MAC" -eq 1 ] && v4match=" ether saddr $DL_MAC"
@@ -299,16 +528,29 @@ EOF
 	fi
 	printf '\tct mark %s counter name "dlc_%s" comment "dl-%s-count"\n' \
 		"$mark" "$DL_SID" "$DL_SID" >> "$RULE_TMP"
-	# Enforcement is switched on and off at run time through the dl_on set, see tick_all.
-	if [ "$DL_ACTION" = block ]; then
-		printf '\tct mark %s ct mark @dl_on counter drop comment "dl-%s-block"\n' \
-			"$mark" "$DL_SID" >> "$RULE_TMP"
-	else
-		printf '\tct mark %s ct mark @dl_on iifname "%s" limit rate over %s kbytes/second burst %s kbytes counter drop comment "dl-%s-up"\n' \
-			"$mark" "$DL_LAN" "$DL_UL_KB" "$DL_UL_BURST" "$DL_SID" >> "$RULE_TMP"
-		printf '\tct mark %s ct mark @dl_on oifname "%s" limit rate over %s kbytes/second burst %s kbytes counter drop comment "dl-%s-down"\n' \
-			"$mark" "$DL_LAN" "$DL_DL_KB" "$DL_DL_BURST" "$DL_SID" >> "$RULE_TMP"
-	fi
+	# The mark is placed in dl_tN at run time for the active step, see tick_all.
+	idx=0
+	while read -r _min act dl ul; do
+		[ -n "$_min" ] || continue
+		if [ "$act" = block ]; then
+			printf '\tct mark %s ct mark @dl_t%s counter drop comment "dl-%s-t%s-block"\n' \
+				"$mark" "$idx" "$DL_SID" "$idx" >> "$RULE_TMP"
+		else
+			dl_kb=$((dl * 125))
+			ul_kb=$((ul * 125))
+			dl_burst=$dl_kb
+			ul_burst=$ul_kb
+			[ "$dl_burst" -lt 64 ] && dl_burst=64
+			[ "$ul_burst" -lt 64 ] && ul_burst=64
+			printf '\tct mark %s ct mark @dl_t%s iifname "%s" limit rate over %s kbytes/second burst %s kbytes counter drop comment "dl-%s-t%s-up"\n' \
+				"$mark" "$idx" "$DL_LAN" "$ul_kb" "$ul_burst" "$DL_SID" "$idx" >> "$RULE_TMP"
+			printf '\tct mark %s ct mark @dl_t%s oifname "%s" limit rate over %s kbytes/second burst %s kbytes counter drop comment "dl-%s-t%s-down"\n' \
+				"$mark" "$idx" "$DL_LAN" "$dl_kb" "$dl_burst" "$DL_SID" "$idx" >> "$RULE_TMP"
+		fi
+		idx=$((idx + 1))
+	done <<EOF
+$STEP_SPEC
+EOF
 
 	for d in $(printf '%s' "$DL_DOMAINS" | tr '/' ' '); do
 		if [ "$DL_HAVE_MAC" -eq 1 ]; then
@@ -347,7 +589,7 @@ cleanup_tmp() {
 }
 
 apply_start() {
-	local enabled
+	local enabled idx
 	config_load domain-limit
 	config_get_bool enabled global enabled 0
 	if [ "$enabled" != 1 ]; then
@@ -358,14 +600,22 @@ apply_start() {
 	mkdir -p "$RUN"
 	DL_LAN=$(lan_device)
 	DL_N=0
+	SEEN_DEV=""
 	NFT_TMP=$(mktemp /tmp/domain-limit.nft.XXXXXX) || return 1
 	RULE_TMP=$(mktemp /tmp/domain-limit.rules.XXXXXX) || return 1
 	DNS_TMP=$(mktemp /tmp/domain-limit.dns.XXXXXX) || return 1
 	JUMP_TMP=$(mktemp /tmp/domain-limit.jump.XXXXXX) || return 1
 	MAP_TMP=$(mktemp /tmp/domain-limit.map.XXXXXX) || return 1
-	printf 'set dl_on {\n\ttype mark\n}\n\n' > "$NFT_TMP"
+	: > "$NFT_TMP"
+	idx=0
+	while [ "$idx" -lt "$MAX_TIER" ]; do
+		printf 'set dl_t%s {\n\ttype mark\n}\n\n' "$idx" >> "$NFT_TMP"
+		idx=$((idx + 1))
+	done
 
+	APPLY_LOG=1
 	config_foreach emit_one rule
+	APPLY_LOG=0
 
 	if [ "$DL_N" -eq 0 ]; then
 		cleanup_tmp
@@ -403,6 +653,8 @@ apply_start() {
 
 	if command -v fw4 >/dev/null 2>&1; then
 		fw4 reload || log "fw4 reload failed"
+		# Older builds created a fourth step set. It is unused now.
+		nft delete set inet fw4 dl_t3 >/dev/null 2>&1 || true
 	else
 		log "fw4 not found"
 		return 1
@@ -467,12 +719,108 @@ num_or0() {
 	esac
 }
 
+# One nft call for every named counter. Later lookups only parse this dump.
+read_counters() {
+	CTR_MAP=$(nft list counters table inet fw4 2>/dev/null | awk '
+		$1 == "counter" {
+			name = $2
+			if (name == "inet")
+				name = $4
+			gsub(/[{}"]/, "", name)
+			cur = ""
+			if (name ~ /^dlc_[A-Za-z0-9_]+$/)
+				cur = name
+		}
+		cur != "" && index($0, "bytes") > 0 {
+			for (i = 1; i <= NF; i++) {
+				if ($i == "bytes" && $(i + 1) ~ /^[0-9]+$/) {
+					print cur, $(i + 1)
+					cur = ""
+					break
+				}
+			}
+		}
+	')
+}
+
+# Sets bytes from CTR_MAP. Name is the full counter name, e.g. dlc_cfg1.
+counter_bytes() {
+	local name="$1" n b
+	bytes=0
+	[ -n "$CTR_MAP" ] || return 0
+	while read -r n b; do
+		if [ "$n" = "$name" ]; then
+			case $b in
+				''|*[!0-9]*) bytes=0 ;;
+				*) bytes=$b ;;
+			esac
+			return 0
+		fi
+	done <<EOF
+$CTR_MAP
+EOF
+}
+
+# Highest step whose minute threshold has been reached. -1 means not yet.
+pick_tier() {
+	local used="$1" min act dl ul idx=0
+	TIER=-1
+	TIER_ACTION=limit
+	TIER_DL=0
+	TIER_UL=0
+	case $used in
+		''|*[!0-9]*) used=0 ;;
+	esac
+	while read -r min act dl ul; do
+		[ -n "$min" ] || continue
+		if [ "$used" -ge $((min * 60)) ]; then
+			TIER=$idx
+			TIER_ACTION=$act
+			TIER_DL=$dl
+			TIER_UL=$ul
+		fi
+		idx=$((idx + 1))
+	done <<EOF
+$STEP_SPEC
+EOF
+}
+
+assign_tier() {
+	local tier="$1" mark="$2"
+	case $tier in
+		0) T0="${T0:+$T0, }$mark" ;;
+		1) T1="${T1:+$T1, }$mark" ;;
+		2) T2="${T2:+$T2, }$mark" ;;
+		3) T3="${T3:+$T3, }$mark" ;;
+	esac
+}
+
+apply_tiers() {
+	local i marks cmd=""
+	i=0
+	while [ "$i" -lt "$MAX_TIER" ]; do
+		case $i in
+			0) marks=$T0 ;;
+			1) marks=$T1 ;;
+			2) marks=$T2 ;;
+			3) marks=$T3 ;;
+			*) marks="" ;;
+		esac
+		cmd="${cmd}flush set inet fw4 dl_t${i}
+"
+		if [ -n "$marks" ]; then
+			cmd="${cmd}add element inet fw4 dl_t${i} { ${marks} }
+"
+		fi
+		i=$((i + 1))
+	done
+	printf '%s' "$cmd" | nft -f - 2>/dev/null
+}
+
 tick_one() {
-	local sid="$1" mark="$2" quota bytes key used last lastts elapsed delta win=0 enforce=0
-	config_get quota "$sid" quota_min
-	quota=$(num_or0 "$quota")
-	bytes=$(nft list counter inet fw4 "dlc_$sid" 2>/dev/null | sed -n 's/.*bytes \([0-9][0-9]*\).*/\1/p' | head -n 1)
-	bytes=$(num_or0 "$bytes")
+	local sid="$1" mark="$2" bytes key used last lastts elapsed delta win=0 enforce=0 tier=-1
+	collect_steps "$sid" || return 0
+	counter_bytes "dlc_$sid"
 
 	key="" used=0 last=0 lastts=$NOW_TS
 	[ -f "$RUN/usage.$sid" ] && read -r key used last lastts _rest < "$RUN/usage.$sid"
@@ -499,12 +847,14 @@ tick_one() {
 	if [ "$win" -eq 1 ] && [ "$elapsed" -gt 0 ] && [ "$delta" -ge $((elapsed * ACTIVE_BPS)) ]; then
 		used=$((used + elapsed))
 	fi
-	if [ "$win" -eq 1 ] && { [ "$quota" -eq 0 ] || [ "$used" -ge $((quota * 60)) ]; }; then
-		enforce=1
+	if [ "$win" -eq 1 ]; then
+		pick_tier "$used"
+		tier=$TIER
+		[ "$tier" -ge 0 ] && enforce=1
 	fi
 
 	printf '%s %s %s %s %s %s\n' "$key" "$used" "$bytes" "$NOW_TS" "$win" "$enforce" > "$RUN/usage.$sid"
-	[ "$enforce" -eq 1 ] && ON="${ON:+$ON, }$mark"
+	[ "$enforce" -eq 1 ] && assign_tier "$tier" "$mark"
 	return 0
 }
 
@@ -513,15 +863,15 @@ tick_all() {
 	[ -f "$NFT_TABLE" ] && [ -f "$RUN/map" ] || return 0
 	now_vars
 	config_load domain-limit
-	ON=""
+	read_counters
+	T0=""
+	T1=""
+	T2=""
+	T3=""
 	while read -r sid mark; do
 		[ -n "$sid" ] && tick_one "$sid" "$mark"
 	done < "$RUN/map"
-	if [ -n "$ON" ]; then
-		printf 'flush set inet fw4 dl_on\nadd element inet fw4 dl_on { %s }\n' "$ON" | nft -f - 2>/dev/null
-	else
-		nft flush set inet fw4 dl_on 2>/dev/null
-	fi
+	apply_tiers
 	return 0
 }
 
@@ -580,19 +930,20 @@ count_set() {
 	printf '%s' "$n"
 }
 
-packets_for() {
+sum_packets() {
 	local n
-	[ -n "$DL_CHAIN_DUMP" ] || {
+	if [ -z "$DL_CHAIN_DUMP" ]; then
 		printf '0'
 		return 0
-	}
-	n=$(printf '%s\n' "$DL_CHAIN_DUMP" | sed -n "s/.*counter packets \\([0-9][0-9]*\\) bytes [0-9][0-9]* drop comment \"${1}\".*/\\1/p" | head -n 1)
+	fi
+	n=$(printf '%s\n' "$DL_CHAIN_DUMP" | sed -n "s/.*counter packets \\([0-9][0-9]*\\) bytes [0-9][0-9]* drop comment \"${1}\".*/\\1/p" | awk '{s+=$1} END {print s+0}')
 	[ -n "$n" ] || n=0
 	printf '%s' "$n"
 }
 
 status_one() {
 	local cfg="$1" sid name en action quota v4 v6 up down used win enforce
+	local used_sec stepped cap dl_show ul_show block_drop
 	config_get name "$cfg" name
 	config_get_bool en "$cfg" enabled 1
 	config_get action "$cfg" action limit
@@ -601,22 +952,37 @@ status_one() {
 	sid=$(sanitize "$cfg")
 	v4=$(count_set "dl4_$sid")
 	v6=$(count_set "dl6_$sid")
-	if [ "$action" = block ]; then
-		up=0
-		down=$(packets_for "dl-${sid}-block")
-	else
-		up=$(packets_for "dl-${sid}-up")
-		down=$(packets_for "dl-${sid}-down")
-	fi
+	up=$(sum_packets "dl-${sid}-t[0-9]-up")
+	down=$(sum_packets "dl-${sid}-t[0-9]-down")
+	block_drop=$(sum_packets "dl-${sid}-t[0-9]-block")
+	down=$((down + block_drop))
 	used=0 win=0 enforce=0
 	[ -f "$RUN/usage.$sid" ] && read -r _key used _last _ts win enforce < "$RUN/usage.$sid"
+	used_sec=$(num_or0 "$used")
+	collect_steps "$cfg" || true
+	stepped=$(num_or0 "$STEPPED")
+	cap=$(num_or0 "$CAP_MIN")
+	dl_show=0
+	ul_show=0
+	if [ "$(num_or0 "$enforce")" -eq 1 ]; then
+		pick_tier "$used_sec"
+		if [ "$TIER" -ge 0 ]; then
+			action=$TIER_ACTION
+			dl_show=$(num_or0 "$TIER_DL")
+			ul_show=$(num_or0 "$TIER_UL")
+		fi
+	fi
 	json_add_object
 	json_add_string id "$sid"
 	json_add_string name "${name:-$sid}"
 	json_add_int enabled "$en"
 	json_add_string action "$action"
 	json_add_int quota_min "$quota"
-	json_add_int used_min $(( $(num_or0 "$used") / 60 ))
+	json_add_int stepped "$stepped"
+	json_add_int cap_min "$cap"
+	json_add_int dl_mbps "$dl_show"
+	json_add_int ul_mbps "$ul_show"
+	json_add_int used_min $((used_sec / 60))
 	json_add_int window "$(num_or0 "$win")"
 	json_add_int enforced "$(num_or0 "$enforce")"
 	json_add_int v4 "$v4"

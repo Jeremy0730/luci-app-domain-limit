@@ -33,6 +33,9 @@ msgstr "禁止中"
 msgid "Limiting"
 msgstr "限速中"
 
+msgid "Limiting at %s / %s Mbps"
+msgstr "限速 %s / %s Mbps"
+
 msgid "Allowance left"
 msgstr "时长未用完"
 
@@ -42,8 +45,8 @@ msgstr "不在生效时段"
 msgid "No status yet. Install and start the domain-limit service, then reopen this page."
 msgstr "还没有读到运行状态。安装并启动 domain-limit 服务后再打开本页。"
 
-msgid "dnsmasq was built without nftset support. Install dnsmasq-full, otherwise addresses resolved by clients are not added to the limit sets. The router still resolves the domains itself every 90 seconds."
-msgstr "dnsmasq 没有编译 nftset。请安装 dnsmasq-full，否则客户端解析出的新地址不会自动写入限速集合。路由仍会每 90 秒自己解析一次。"
+msgid "dnsmasq was built without nftset support. Install dnsmasq-full, otherwise addresses resolved by clients are not added to the limit sets. The router still resolves the domains itself every 10 minutes."
+msgstr "dnsmasq 没有编译 nftset。请安装 dnsmasq-full，否则客户端解析出的新地址不会自动写入限速集合。路由仍会每 10 分钟自己解析一次。"
 
 msgid "Automatic loading of nftables includes (auto_includes) is disabled in the firewall. The rules on this page will not reach the forward path."
 msgstr "防火墙关闭了自动载入 nftables 脚本（auto_includes）。本页的规则不会进入转发路径。"
@@ -99,6 +102,90 @@ msgstr "域名限速"
 msgid "Limit or block selected apps and domains for one device, optionally only at certain times or after a daily allowance. Rates are in Mbps (megabits per second). Entering example.com also covers its subdomains. Devices must use the router as DNS server; Private DNS on phones or encrypted DNS in browsers prevents domain matching. Prefer a MAC address so the rule survives IP changes. With only an IPv4 address, IPv6 traffic is not limited."
 msgstr "对某一台设备访问指定 App 和域名进行限速或禁止，可以只在某些时段生效，或在每日额度用完后生效，其它网站不受影响。速率单位是 Mbps（兆比特/秒）。填写 example.com 时，它的子域名会一起计算。设备请使用路由器的 DNS；手机私人 DNS、浏览器加密 DNS 会对不上域名。优先填 MAC，这样 IP 变化后仍然有效。只填 IPv4 时，IPv6 不受这条规则限制。"
 
+msgid "One rule is one device and the apps you pick. Limit it right away, after some free minutes, or in steps. Steps are stages of that same rule. Each device can have only one rule. Rates are Mbps. example.com includes its subdomains. The device must use this router for DNS. Prefer a MAC address. With only an IPv4 address, IPv6 is not limited."
+msgstr "一条规则对应一台设备和所选的 App。可以选择马上限制、先放开一段时间再限制，或者逐级收紧。阶梯是这一条规则里的几级。每台设备只能有一条规则。速率单位是 Mbps。填写 example.com 时，子域名会一起计算。设备必须使用这台路由器的 DNS。优先填 MAC。只填 IPv4 时，IPv6 不受限制。"
+
+msgid "Not limited yet"
+msgstr "尚未限制"
+
+msgid "Each device can have only one rule. Use steps when that device should get stricter over time."
+msgstr "每台设备只能有一条规则。要越用越严，请在这一条里用阶梯。"
+
+msgid "Device and apps"
+msgstr "设备和 App"
+
+msgid "Limit"
+msgstr "限制"
+
+msgid "How"
+msgstr "方式"
+
+msgid "Right away"
+msgstr "马上限制"
+
+msgid "Free for a while, then one limit"
+msgstr "先放开，用完后限制"
+
+msgid "Tighten in steps"
+msgstr "逐级收紧"
+
+msgid "Right away starts as soon as the rule is in effect. Free for a while allows normal use for the minutes below, then applies one limit or block. Tighten in steps is a ladder on this same rule: before the first step nothing is limited, then each step is stricter."
+msgstr "马上限制：规则一生效就限速或禁止。先放开：下面填写的分钟内可以正常使用，用完后只执行一次限速或禁止。逐级收紧：在本页把每一级填完，第一级之前不限制，往后一级比一级严。"
+
+msgid "Then"
+msgstr "然后"
+
+msgid "Free minutes"
+msgstr "可自由使用（分钟）"
+
+msgid "Normal use is allowed for this many minutes of real traffic. Then the action above applies. The count clears when the time window ends, or at midnight if the rule is always on."
+msgstr "这些分钟内可以正常使用，只统计真正有流量的时间。用完后执行上面的动作。时段结束时清零；如果全天生效，则在午夜清零。"
+
+msgid "Step %d: after (minutes)"
+msgstr "第 %d 级：用满（分钟）"
+
+msgid "Traffic is not limited before this minute. Leave a later step blank to stop the ladder. Three steps is the maximum."
+msgstr "这一分钟之前不限速。后面某一级的分钟留空，阶梯就到此为止。最多 3 级。"
+
+msgid "The first step needs a minute."
+msgstr "第 1 级要填写分钟。"
+
+msgid "Minutes are 0-1440."
+msgstr "分钟为 0-1440。"
+
+msgid "Fill the previous step first."
+msgstr "请先填写上一级。"
+
+msgid "Each step must be later than the one above."
+msgstr "每一级的分钟数都要比上一级更晚。"
+
+msgid "Step %d: then"
+msgstr "第 %d 级：然后"
+
+msgid "Step %d: download (Mbps)"
+msgstr "第 %d 级：下行 Mbps"
+
+msgid "Step %d: upload (Mbps)"
+msgstr "第 %d 级：上行 Mbps"
+
+msgid "Enter a rate from 1 to 10000."
+msgstr "速率请填 1-10000。"
+
+msgid "After %d min: Block"
+msgstr "%d 分钟后禁止"
+
+msgid "After %d min: %s / %s Mbps"
+msgstr "%d 分钟后 %s / %s Mbps"
+
+msgid "Hours"
+msgstr "时段"
+
+msgid "All day"
+msgstr "全天"
+
+msgid "Only during these hours"
+msgstr "只在这些小时"
+
 msgid "Main switch"
 msgstr "总开关"
 
@@ -138,8 +225,11 @@ msgstr "App / 域名"
 msgid "Domains: %d"
 msgstr "域名 %d 个"
 
-msgid "Select the MAC of an online device, or enter a MAC / IPv4 address."
-msgstr "选择在线设备的 MAC，或手填 MAC / IPv4。"
+msgid "Select the MAC of an online device, or enter a MAC / IPv4 address. Each device can have only one rule."
+msgstr "选择在线设备的 MAC，或手填 MAC / IPv4。每台设备只能有一条规则。"
+
+msgid "This device already has a rule (%s). Edit that rule instead of adding another."
+msgstr "这台设备已经有规则（%s）。请去编辑那条规则，不要再新建一条。"
 
 msgid "Enter a MAC (aa:bb:cc:dd:ee:ff) or an IPv4 address"
 msgstr "填写 MAC（aa:bb:cc:dd:ee:ff）或 IPv4 地址"
@@ -201,8 +291,23 @@ msgstr "结束早于开始表示跨过午夜，例如 22:00 到 07:00。开始�
 msgid "Allowance (minutes)"
 msgstr "可用时长（分钟）"
 
-msgid "Minutes the apps can be used freely within each time window before the action applies. The count starts when the window opens and is cleared when it ends; without a time window it is cleared at midnight. Only minutes with real traffic count. 0 or empty applies the action right away."
-msgstr "每个时段内可以不受限制使用的分钟数，用完后才执行上面的动作。时段开始时从零累计，时段结束时清零；没有设置时段时每天午夜清零。只统计真正有流量的分钟。填 0 或留空表示立即执行。"
+msgid "Minutes the apps can be used freely within each time window before the action applies. The count starts when the window opens and is cleared when it ends; without a time window it is cleared at midnight. Only minutes with real traffic count. 0 or empty applies the action right away. Ignored when steps are set."
+msgstr "每个时段内可以不受限制使用的分钟数，用完后才执行上面的动作。时段开始时从零累计，时段结束时清零；没有设置时段时每天午夜清零。只统计真正有流量的分钟。填 0 或留空表示立即执行。设置了阶梯后，此项不再生效。"
+
+msgid "Steps"
+msgstr "阶梯"
+
+msgid "After this many minutes of real use, apply a tighter limit. 30 4 means 4 Mbps each way, 30 4 2 means 4 Mbps down and 2 Mbps up, and 90 block cuts off access. Up to 4 steps, for example 30 4, then 60 2, then 90 block. Traffic is unlimited before the first step. When any step is set, these steps replace the allowance above and the action on the Rule tab. Counts are cleared with the time window."
+msgstr "按实际使用的分钟数逐级收紧。30 4 表示双向 4 Mbps，30 4 2 表示下行 4 Mbps、上行 2 Mbps，90 block 表示禁止访问。最多 4 级，例如先 30 4，再 60 2，再 90 block。第一级之前不限速。只要设置了阶梯，就不再使用上面的可用时长，也不再使用「规则」页里的动作。用量随时段一起清零。"
+
+msgid "Use 30 4, 30 4 2 or 90 block. Minutes are 0-1440 and rates are 1-10000."
+msgstr "格式为 30 4、30 4 2 或 90 block。分钟为 0-1440，速率为 1-10000。"
+
+msgid "At most 4 steps."
+msgstr "最多 4 级。"
+
+msgid "Each step must use a different number of minutes."
+msgstr "每一级的分钟数不能相同。"
 
 msgid "Every day"
 msgstr "每天"

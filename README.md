@@ -8,6 +8,7 @@ A LuCI app that limits or blocks selected apps and domains for selected devices 
 - **Limit or block**: cap download/upload in Mbps, or drop the traffic entirely
 - **Time windows**: apply a rule only on chosen weekdays between two times (windows may cross midnight, e.g. 22:00–07:00)
 - **Allowance**: let a device use the apps freely for N minutes within each time window, then apply the limit or block; the count is cleared when the window ends (at midnight for rules without a window)
+- **Steps**: a ladder inside one rule, for example 4 Mbps after 30 minutes, 2 Mbps after 60, and block after 90. Do not add a second rule to stack another limit
 
 - Works on: OpenWrt / ImmortalWrt 23.05 and later (fw4); 25.12 recommended
 - Depends on: `luci-base`, `firewall4`, `dnsmasq-full`
@@ -54,13 +55,14 @@ Menu: Services → Domain Rate Limit.
 
 1. Turn on the main switch.
 2. Add a rule. On the **Rule** tab pick a device (MAC preferred), select apps and/or enter extra domains (`example.com` also matches all of its subdomains), then choose **Limit speed** with download/upload rates in Mbps, or **Block**.
-3. Optionally, on the **Time control** tab set the days and time window, and an allowance in minutes.
-4. Save & Apply. The status section shows each rule's state (limiting, blocking, allowance left, outside time window), minutes used in the current window, collected IP addresses and dropped packets.
+3. On the **Limit** tab pick one mode. Right away applies a limit or block as soon as the rule is in effect. Free for a while allows normal use for the minutes you enter, then applies one action. Tighten in steps fills up to three stages in that same rule, for example 4 Mbps down and up after 30 minutes, 2 Mbps after 60, and block after 90. Set the hours if it should not apply all day. A device can have only one rule; edit the existing rule instead of adding a second one for the same MAC or address.
+4. Save & Apply. The status section shows each rule's state (limiting, blocking, the current step rate, allowance left, outside time window), minutes used in the current window, collected IP addresses and dropped packets.
 
 Notes:
 
 - App domain lists are best effort. Apps change their domains and some use their own DNS (HTTPDNS) or hard-coded IPs, so a few requests may slip through. Add missing domains under Extra domains.
 - Only minutes with real traffic (about 20 kbit/s or more) count towards the allowance. Usage is kept in RAM and starts from zero after a reboot.
+- Steps and free minutes count only minutes with real traffic, and clear when the time window ends (at midnight when the rule is all day). Traffic is unlimited before the first step. Each step has its own download and upload rate. At most 3 steps. Each device can have only one rule.
 - Time windows use the router's time zone (System → System). A window that crosses midnight, e.g. 22:00–07:00, is one window, so its allowance is not cleared at midnight. For a whole-day window set the same start and end time.
 
 - Limited devices must use the router as their DNS server. Private DNS on phones or secure DNS (DoH) in browsers bypasses domain matching. You can redirect LAN port 53 to the router in the firewall.
@@ -69,10 +71,10 @@ Notes:
 
 ## How it works
 
-- dnsmasq `nftset=` adds the addresses that the target domains resolve to into nftables sets; the daemon also resolves the domains itself every 90 seconds.
+- dnsmasq `nftset=` adds the addresses that the target domains resolve to into nftables sets; the daemon also resolves the domains itself every 10 minutes.
 - In the fw4 forward chain, connections from the target device to addresses in the set get a conntrack mark (including connections opened before the rule took effect).
-- Marked traffic is limited per direction with `limit rate over … drop`, or dropped for block rules. A named counter per rule measures usage.
-- Every 30 seconds the daemon checks the time window and allowance of each rule and updates the `dl_on` set of active marks atomically, so rules turn on and off without reloading the firewall.
+- Marked traffic is limited per direction with `limit rate over … drop` at the rate of the active step, or dropped on a block step. A named counter per rule measures usage.
+- Every 30 seconds the daemon reads all counters with one nft call, checks each rule's time window and minutes used, and moves the conntrack mark into the matching step set (`dl_t0` and up). Steps change without reloading the firewall.
 
 ## Building
 
